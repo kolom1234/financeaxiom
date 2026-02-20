@@ -3,6 +3,9 @@
 [English](./README.md) | [한국어](./README.ko.md)
 
 Financial intelligence platform built on a Cloudflare-first architecture, with explicit legal/compliance controls for data-source usage, ad-consent gating, and release-time audit checks.
+link : financeaxiom.com
+<img width="984" height="1284" alt="image" src="https://github.com/user-attachments/assets/44c21eb4-1f08-42e9-aa5c-1c12448b197e" />
+
 
 ## Table of Contents
 
