@@ -1,0 +1,4 @@
+# Open Finance Pulse ads.txt
+# Replace with real authorized seller lines before monetized ad launch.
+# Format:
+# <ad-system-domain>, <publisher-id>, <DIRECT|RESELLER>, <certification-authority-id>

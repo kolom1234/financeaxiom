@@ -1,0 +1,1348 @@
+THIRD_PARTY_NOTICES
+
+Generated at (UTC): 2026-02-20T06:32:34.134Z
+Source lockfile: package-lock.json
+Lockfile SHA256: f86f3515410fde82d23ece68c801decf5c67f565f0d6469692233c8708e54005
+
+This file lists third-party npm packages and declared licenses from package-lock metadata.
+Validate notice/source-offer obligations against your actual distribution model.
+
+@babel/code-frame@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/code-frame/-/code-frame-7.29.0.tgz
+
+@babel/compat-data@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/compat-data/-/compat-data-7.29.0.tgz
+
+@babel/core@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/core/-/core-7.29.0.tgz
+
+@babel/core/node_modules/semver@6.3.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/semver/-/semver-6.3.1.tgz
+
+@babel/generator@7.29.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/generator/-/generator-7.29.1.tgz
+
+@babel/helper-compilation-targets@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-compilation-targets/-/helper-compilation-targets-7.28.6.tgz
+
+@babel/helper-compilation-targets/node_modules/semver@6.3.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/semver/-/semver-6.3.1.tgz
+
+@babel/helper-globals@7.28.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-globals/-/helper-globals-7.28.0.tgz
+
+@babel/helper-module-imports@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-module-imports/-/helper-module-imports-7.28.6.tgz
+
+@babel/helper-module-transforms@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-module-transforms/-/helper-module-transforms-7.28.6.tgz
+
+@babel/helper-plugin-utils@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-plugin-utils/-/helper-plugin-utils-7.28.6.tgz
+
+@babel/helper-string-parser@7.27.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-string-parser/-/helper-string-parser-7.27.1.tgz
+
+@babel/helper-validator-identifier@7.28.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-validator-identifier/-/helper-validator-identifier-7.28.5.tgz
+
+@babel/helper-validator-option@7.27.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helper-validator-option/-/helper-validator-option-7.27.1.tgz
+
+@babel/helpers@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/helpers/-/helpers-7.28.6.tgz
+
+@babel/parser@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/parser/-/parser-7.29.0.tgz
+
+@babel/plugin-transform-react-jsx-self@7.27.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/plugin-transform-react-jsx-self/-/plugin-transform-react-jsx-self-7.27.1.tgz
+
+@babel/plugin-transform-react-jsx-source@7.27.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/plugin-transform-react-jsx-source/-/plugin-transform-react-jsx-source-7.27.1.tgz
+
+@babel/template@7.28.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/template/-/template-7.28.6.tgz
+
+@babel/traverse@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/traverse/-/traverse-7.29.0.tgz
+
+@babel/types@7.29.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@babel/types/-/types-7.29.0.tgz
+
+@cloudflare/kv-asset-handler@0.4.2
+  License: MIT OR Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/kv-asset-handler/-/kv-asset-handler-0.4.2.tgz
+
+@cloudflare/unenv-preset@2.12.1
+  License: MIT OR Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/unenv-preset/-/unenv-preset-2.12.1.tgz
+
+@cloudflare/workerd-darwin-64@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workerd-darwin-64/-/workerd-darwin-64-1.20260212.0.tgz
+
+@cloudflare/workerd-darwin-arm64@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workerd-darwin-arm64/-/workerd-darwin-arm64-1.20260212.0.tgz
+
+@cloudflare/workerd-linux-64@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workerd-linux-64/-/workerd-linux-64-1.20260212.0.tgz
+
+@cloudflare/workerd-linux-arm64@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workerd-linux-arm64/-/workerd-linux-arm64-1.20260212.0.tgz
+
+@cloudflare/workerd-windows-64@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workerd-windows-64/-/workerd-windows-64-1.20260212.0.tgz
+
+@cloudflare/workers-types@4.20260217.0
+  License: MIT OR Apache-2.0
+  Resolved: https://registry.npmjs.org/@cloudflare/workers-types/-/workers-types-4.20260217.0.tgz
+
+@cspotcode/source-map-support@0.8.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@cspotcode/source-map-support/-/source-map-support-0.8.1.tgz
+
+@cspotcode/source-map-support/node_modules/@jridgewell/trace-mapping@0.3.9
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.9.tgz
+
+@emnapi/runtime@1.8.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.8.1.tgz
+
+@esbuild/aix-ppc64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/aix-ppc64/-/aix-ppc64-0.27.3.tgz
+
+@esbuild/android-arm@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/android-arm/-/android-arm-0.27.3.tgz
+
+@esbuild/android-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/android-arm64/-/android-arm64-0.27.3.tgz
+
+@esbuild/android-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/android-x64/-/android-x64-0.27.3.tgz
+
+@esbuild/darwin-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/darwin-arm64/-/darwin-arm64-0.27.3.tgz
+
+@esbuild/darwin-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/darwin-x64/-/darwin-x64-0.27.3.tgz
+
+@esbuild/freebsd-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/freebsd-arm64/-/freebsd-arm64-0.27.3.tgz
+
+@esbuild/freebsd-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/freebsd-x64/-/freebsd-x64-0.27.3.tgz
+
+@esbuild/linux-arm@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-arm/-/linux-arm-0.27.3.tgz
+
+@esbuild/linux-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-arm64/-/linux-arm64-0.27.3.tgz
+
+@esbuild/linux-ia32@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-ia32/-/linux-ia32-0.27.3.tgz
+
+@esbuild/linux-loong64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-loong64/-/linux-loong64-0.27.3.tgz
+
+@esbuild/linux-mips64el@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-mips64el/-/linux-mips64el-0.27.3.tgz
+
+@esbuild/linux-ppc64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-ppc64/-/linux-ppc64-0.27.3.tgz
+
+@esbuild/linux-riscv64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-riscv64/-/linux-riscv64-0.27.3.tgz
+
+@esbuild/linux-s390x@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-s390x/-/linux-s390x-0.27.3.tgz
+
+@esbuild/linux-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/linux-x64/-/linux-x64-0.27.3.tgz
+
+@esbuild/netbsd-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/netbsd-arm64/-/netbsd-arm64-0.27.3.tgz
+
+@esbuild/netbsd-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/netbsd-x64/-/netbsd-x64-0.27.3.tgz
+
+@esbuild/openbsd-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/openbsd-arm64/-/openbsd-arm64-0.27.3.tgz
+
+@esbuild/openbsd-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/openbsd-x64/-/openbsd-x64-0.27.3.tgz
+
+@esbuild/openharmony-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/openharmony-arm64/-/openharmony-arm64-0.27.3.tgz
+
+@esbuild/sunos-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/sunos-x64/-/sunos-x64-0.27.3.tgz
+
+@esbuild/win32-arm64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/win32-arm64/-/win32-arm64-0.27.3.tgz
+
+@esbuild/win32-ia32@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/win32-ia32/-/win32-ia32-0.27.3.tgz
+
+@esbuild/win32-x64@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@esbuild/win32-x64/-/win32-x64-0.27.3.tgz
+
+@eslint-community/eslint-utils@4.9.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@eslint-community/eslint-utils/-/eslint-utils-4.9.1.tgz
+
+@eslint-community/regexpp@4.12.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/@eslint-community/regexpp/-/regexpp-4.12.2.tgz
+
+@eslint/config-array@0.23.1
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@eslint/config-array/-/config-array-0.23.1.tgz
+
+@eslint/config-array/node_modules/balanced-match@4.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.3.tgz
+
+@eslint/config-array/node_modules/brace-expansion@5.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.2.tgz
+
+@eslint/config-array/node_modules/minimatch@10.2.2
+  License: BlueOak-1.0.0
+  Resolved: https://registry.npmjs.org/minimatch/-/minimatch-10.2.2.tgz
+
+@eslint/config-helpers@0.5.2
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@eslint/config-helpers/-/config-helpers-0.5.2.tgz
+
+@eslint/core@1.1.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@eslint/core/-/core-1.1.0.tgz
+
+@eslint/object-schema@3.0.1
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@eslint/object-schema/-/object-schema-3.0.1.tgz
+
+@eslint/plugin-kit@0.6.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@eslint/plugin-kit/-/plugin-kit-0.6.0.tgz
+
+@humanfs/core@0.19.1
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@humanfs/core/-/core-0.19.1.tgz
+
+@humanfs/node@0.16.7
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@humanfs/node/-/node-0.16.7.tgz
+
+@humanwhocodes/module-importer@1.0.1
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@humanwhocodes/module-importer/-/module-importer-1.0.1.tgz
+
+@humanwhocodes/retry@0.4.3
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@humanwhocodes/retry/-/retry-0.4.3.tgz
+
+@img/colour@1.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@img/colour/-/colour-1.0.0.tgz
+
+@img/sharp-darwin-arm64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz
+
+@img/sharp-darwin-x64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.34.5.tgz
+
+@img/sharp-libvips-darwin-arm64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-darwin-arm64/-/sharp-libvips-darwin-arm64-1.2.4.tgz
+
+@img/sharp-libvips-darwin-x64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-darwin-x64/-/sharp-libvips-darwin-x64-1.2.4.tgz
+
+@img/sharp-libvips-linux-arm@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-arm/-/sharp-libvips-linux-arm-1.2.4.tgz
+
+@img/sharp-libvips-linux-arm64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-arm64/-/sharp-libvips-linux-arm64-1.2.4.tgz
+
+@img/sharp-libvips-linux-ppc64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-ppc64/-/sharp-libvips-linux-ppc64-1.2.4.tgz
+
+@img/sharp-libvips-linux-riscv64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-riscv64/-/sharp-libvips-linux-riscv64-1.2.4.tgz
+
+@img/sharp-libvips-linux-s390x@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-s390x/-/sharp-libvips-linux-s390x-1.2.4.tgz
+
+@img/sharp-libvips-linux-x64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linux-x64/-/sharp-libvips-linux-x64-1.2.4.tgz
+
+@img/sharp-libvips-linuxmusl-arm64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-arm64/-/sharp-libvips-linuxmusl-arm64-1.2.4.tgz
+
+@img/sharp-libvips-linuxmusl-x64@1.2.4
+  License: LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-libvips-linuxmusl-x64/-/sharp-libvips-linuxmusl-x64-1.2.4.tgz
+
+@img/sharp-linux-arm@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.34.5.tgz
+
+@img/sharp-linux-arm64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.34.5.tgz
+
+@img/sharp-linux-ppc64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.34.5.tgz
+
+@img/sharp-linux-riscv64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.34.5.tgz
+
+@img/sharp-linux-s390x@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.34.5.tgz
+
+@img/sharp-linux-x64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.34.5.tgz
+
+@img/sharp-linuxmusl-arm64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.34.5.tgz
+
+@img/sharp-linuxmusl-x64@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.34.5.tgz
+
+@img/sharp-wasm32@0.34.5
+  License: Apache-2.0 AND LGPL-3.0-or-later AND MIT
+  Resolved: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz
+
+@img/sharp-win32-arm64@0.34.5
+  License: Apache-2.0 AND LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz
+
+@img/sharp-win32-ia32@0.34.5
+  License: Apache-2.0 AND LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz
+
+@img/sharp-win32-x64@0.34.5
+  License: Apache-2.0 AND LGPL-3.0-or-later
+  Resolved: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz
+
+@jridgewell/gen-mapping@0.3.13
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/gen-mapping/-/gen-mapping-0.3.13.tgz
+
+@jridgewell/remapping@2.3.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/remapping/-/remapping-2.3.5.tgz
+
+@jridgewell/resolve-uri@3.1.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/resolve-uri/-/resolve-uri-3.1.2.tgz
+
+@jridgewell/sourcemap-codec@1.5.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/sourcemap-codec/-/sourcemap-codec-1.5.5.tgz
+
+@jridgewell/trace-mapping@0.3.31
+  License: MIT
+  Resolved: https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.31.tgz
+
+@ofp/policy@UNKNOWN
+  License: UNKNOWN
+  Resolved: packages/policy
+
+@ofp/shared@UNKNOWN
+  License: UNKNOWN
+  Resolved: packages/shared
+
+@ofp/web@UNKNOWN
+  License: UNKNOWN
+  Resolved: apps/web
+
+@ofp/worker@UNKNOWN
+  License: UNKNOWN
+  Resolved: apps/worker
+
+@playwright/test@1.58.2
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@playwright/test/-/test-1.58.2.tgz
+
+@poppinss/colors@4.1.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/@poppinss/colors/-/colors-4.1.6.tgz
+
+@poppinss/dumper@0.6.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/@poppinss/dumper/-/dumper-0.6.5.tgz
+
+@poppinss/dumper/node_modules/supports-color@10.2.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/supports-color/-/supports-color-10.2.2.tgz
+
+@poppinss/exception@1.2.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@poppinss/exception/-/exception-1.2.3.tgz
+
+@remix-run/router@1.23.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/@remix-run/router/-/router-1.23.2.tgz
+
+@rolldown/pluginutils@1.0.0-rc.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rolldown/pluginutils/-/pluginutils-1.0.0-rc.3.tgz
+
+@rollup/rollup-android-arm-eabi@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-android-arm-eabi/-/rollup-android-arm-eabi-4.57.1.tgz
+
+@rollup/rollup-android-arm64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-android-arm64/-/rollup-android-arm64-4.57.1.tgz
+
+@rollup/rollup-darwin-arm64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-darwin-arm64/-/rollup-darwin-arm64-4.57.1.tgz
+
+@rollup/rollup-darwin-x64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-darwin-x64/-/rollup-darwin-x64-4.57.1.tgz
+
+@rollup/rollup-freebsd-arm64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-freebsd-arm64/-/rollup-freebsd-arm64-4.57.1.tgz
+
+@rollup/rollup-freebsd-x64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-freebsd-x64/-/rollup-freebsd-x64-4.57.1.tgz
+
+@rollup/rollup-linux-arm-gnueabihf@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-arm-gnueabihf/-/rollup-linux-arm-gnueabihf-4.57.1.tgz
+
+@rollup/rollup-linux-arm-musleabihf@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-arm-musleabihf/-/rollup-linux-arm-musleabihf-4.57.1.tgz
+
+@rollup/rollup-linux-arm64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-arm64-gnu/-/rollup-linux-arm64-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-arm64-musl@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-arm64-musl/-/rollup-linux-arm64-musl-4.57.1.tgz
+
+@rollup/rollup-linux-loong64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-loong64-gnu/-/rollup-linux-loong64-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-loong64-musl@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-loong64-musl/-/rollup-linux-loong64-musl-4.57.1.tgz
+
+@rollup/rollup-linux-ppc64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-ppc64-gnu/-/rollup-linux-ppc64-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-ppc64-musl@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-ppc64-musl/-/rollup-linux-ppc64-musl-4.57.1.tgz
+
+@rollup/rollup-linux-riscv64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-riscv64-gnu/-/rollup-linux-riscv64-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-riscv64-musl@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-riscv64-musl/-/rollup-linux-riscv64-musl-4.57.1.tgz
+
+@rollup/rollup-linux-s390x-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-s390x-gnu/-/rollup-linux-s390x-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-x64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-x64-gnu/-/rollup-linux-x64-gnu-4.57.1.tgz
+
+@rollup/rollup-linux-x64-musl@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-linux-x64-musl/-/rollup-linux-x64-musl-4.57.1.tgz
+
+@rollup/rollup-openbsd-x64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-openbsd-x64/-/rollup-openbsd-x64-4.57.1.tgz
+
+@rollup/rollup-openharmony-arm64@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-openharmony-arm64/-/rollup-openharmony-arm64-4.57.1.tgz
+
+@rollup/rollup-win32-arm64-msvc@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-win32-arm64-msvc/-/rollup-win32-arm64-msvc-4.57.1.tgz
+
+@rollup/rollup-win32-ia32-msvc@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-win32-ia32-msvc/-/rollup-win32-ia32-msvc-4.57.1.tgz
+
+@rollup/rollup-win32-x64-gnu@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-win32-x64-gnu/-/rollup-win32-x64-gnu-4.57.1.tgz
+
+@rollup/rollup-win32-x64-msvc@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@rollup/rollup-win32-x64-msvc/-/rollup-win32-x64-msvc-4.57.1.tgz
+
+@sindresorhus/is@7.2.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@sindresorhus/is/-/is-7.2.0.tgz
+
+@speed-highlight/core@1.2.14
+  License: CC0-1.0
+  Resolved: https://registry.npmjs.org/@speed-highlight/core/-/core-1.2.14.tgz
+
+@standard-schema/spec@1.1.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz
+
+@supabase/auth-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/auth-js/-/auth-js-2.95.3.tgz
+
+@supabase/functions-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/functions-js/-/functions-js-2.95.3.tgz
+
+@supabase/postgrest-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/postgrest-js/-/postgrest-js-2.95.3.tgz
+
+@supabase/realtime-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/realtime-js/-/realtime-js-2.95.3.tgz
+
+@supabase/storage-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/storage-js/-/storage-js-2.95.3.tgz
+
+@supabase/supabase-js@2.95.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@supabase/supabase-js/-/supabase-js-2.95.3.tgz
+
+@types/babel__core@7.20.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/babel__core/-/babel__core-7.20.5.tgz
+
+@types/babel__generator@7.27.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/babel__generator/-/babel__generator-7.27.0.tgz
+
+@types/babel__template@7.4.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/babel__template/-/babel__template-7.4.4.tgz
+
+@types/babel__traverse@7.28.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/babel__traverse/-/babel__traverse-7.28.0.tgz
+
+@types/chai@5.2.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/chai/-/chai-5.2.3.tgz
+
+@types/deep-eql@4.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/deep-eql/-/deep-eql-4.0.2.tgz
+
+@types/esrecurse@4.3.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/esrecurse/-/esrecurse-4.3.1.tgz
+
+@types/estree@1.0.8
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/estree/-/estree-1.0.8.tgz
+
+@types/json-schema@7.0.15
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/json-schema/-/json-schema-7.0.15.tgz
+
+@types/node@22.19.11
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/node/-/node-22.19.11.tgz
+
+@types/pg@8.16.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/pg/-/pg-8.16.0.tgz
+
+@types/phoenix@1.6.7
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/phoenix/-/phoenix-1.6.7.tgz
+
+@types/prop-types@15.7.15
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/prop-types/-/prop-types-15.7.15.tgz
+
+@types/react@18.3.28
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/react/-/react-18.3.28.tgz
+
+@types/react-dom@18.3.7
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/react-dom/-/react-dom-18.3.7.tgz
+
+@types/ws@8.18.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/@types/ws/-/ws-8.18.1.tgz
+
+@typescript-eslint/eslint-plugin@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/eslint-plugin/-/eslint-plugin-8.56.0.tgz
+
+@typescript-eslint/parser@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/parser/-/parser-8.56.0.tgz
+
+@typescript-eslint/project-service@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/project-service/-/project-service-8.56.0.tgz
+
+@typescript-eslint/scope-manager@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/scope-manager/-/scope-manager-8.56.0.tgz
+
+@typescript-eslint/tsconfig-utils@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/tsconfig-utils/-/tsconfig-utils-8.56.0.tgz
+
+@typescript-eslint/type-utils@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/type-utils/-/type-utils-8.56.0.tgz
+
+@typescript-eslint/types@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/types/-/types-8.56.0.tgz
+
+@typescript-eslint/typescript-estree@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/typescript-estree/-/typescript-estree-8.56.0.tgz
+
+@typescript-eslint/utils@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/utils/-/utils-8.56.0.tgz
+
+@typescript-eslint/visitor-keys@8.56.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/@typescript-eslint/visitor-keys/-/visitor-keys-8.56.0.tgz
+
+@typescript-eslint/visitor-keys/node_modules/eslint-visitor-keys@5.0.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/eslint-visitor-keys/-/eslint-visitor-keys-5.0.0.tgz
+
+@vitejs/plugin-react@5.1.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitejs/plugin-react/-/plugin-react-5.1.4.tgz
+
+@vitest/expect@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/expect/-/expect-4.0.18.tgz
+
+@vitest/mocker@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/mocker/-/mocker-4.0.18.tgz
+
+@vitest/pretty-format@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/pretty-format/-/pretty-format-4.0.18.tgz
+
+@vitest/runner@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/runner/-/runner-4.0.18.tgz
+
+@vitest/snapshot@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/snapshot/-/snapshot-4.0.18.tgz
+
+@vitest/spy@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/spy/-/spy-4.0.18.tgz
+
+@vitest/utils@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/@vitest/utils/-/utils-4.0.18.tgz
+
+acorn@8.16.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/acorn/-/acorn-8.16.0.tgz
+
+acorn-jsx@5.3.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/acorn-jsx/-/acorn-jsx-5.3.2.tgz
+
+ajv@6.12.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/ajv/-/ajv-6.12.6.tgz
+
+assertion-error@2.0.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/assertion-error/-/assertion-error-2.0.1.tgz
+
+balanced-match@1.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/balanced-match/-/balanced-match-1.0.2.tgz
+
+baseline-browser-mapping@2.9.19
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/baseline-browser-mapping/-/baseline-browser-mapping-2.9.19.tgz
+
+blake3-wasm@2.1.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/blake3-wasm/-/blake3-wasm-2.1.5.tgz
+
+brace-expansion@2.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/brace-expansion/-/brace-expansion-2.0.2.tgz
+
+browserslist@4.28.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/browserslist/-/browserslist-4.28.1.tgz
+
+caniuse-lite@1.0.30001770
+  License: CC-BY-4.0
+  Resolved: https://registry.npmjs.org/caniuse-lite/-/caniuse-lite-1.0.30001770.tgz
+
+chai@6.2.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/chai/-/chai-6.2.2.tgz
+
+convert-source-map@2.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/convert-source-map/-/convert-source-map-2.0.0.tgz
+
+cookie@1.1.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/cookie/-/cookie-1.1.1.tgz
+
+cross-spawn@7.0.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/cross-spawn/-/cross-spawn-7.0.6.tgz
+
+csstype@3.2.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/csstype/-/csstype-3.2.3.tgz
+
+debug@4.4.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/debug/-/debug-4.4.3.tgz
+
+deep-is@0.1.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/deep-is/-/deep-is-0.1.4.tgz
+
+detect-libc@2.1.2
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/detect-libc/-/detect-libc-2.1.2.tgz
+
+electron-to-chromium@1.5.286
+  License: ISC
+  Resolved: https://registry.npmjs.org/electron-to-chromium/-/electron-to-chromium-1.5.286.tgz
+
+error-stack-parser-es@1.0.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/error-stack-parser-es/-/error-stack-parser-es-1.0.5.tgz
+
+es-module-lexer@1.7.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/es-module-lexer/-/es-module-lexer-1.7.0.tgz
+
+esbuild@0.27.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/esbuild/-/esbuild-0.27.3.tgz
+
+escalade@3.2.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/escalade/-/escalade-3.2.0.tgz
+
+escape-string-regexp@4.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/escape-string-regexp/-/escape-string-regexp-4.0.0.tgz
+
+eslint@10.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/eslint/-/eslint-10.0.0.tgz
+
+eslint-scope@9.1.0
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/eslint-scope/-/eslint-scope-9.1.0.tgz
+
+eslint-visitor-keys@3.4.3
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/eslint-visitor-keys/-/eslint-visitor-keys-3.4.3.tgz
+
+eslint/node_modules/balanced-match@4.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/balanced-match/-/balanced-match-4.0.3.tgz
+
+eslint/node_modules/brace-expansion@5.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.2.tgz
+
+eslint/node_modules/eslint-visitor-keys@5.0.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/eslint-visitor-keys/-/eslint-visitor-keys-5.0.0.tgz
+
+eslint/node_modules/ignore@5.3.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/ignore/-/ignore-5.3.2.tgz
+
+eslint/node_modules/minimatch@10.2.2
+  License: BlueOak-1.0.0
+  Resolved: https://registry.npmjs.org/minimatch/-/minimatch-10.2.2.tgz
+
+espree@11.1.0
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/espree/-/espree-11.1.0.tgz
+
+espree/node_modules/eslint-visitor-keys@5.0.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/eslint-visitor-keys/-/eslint-visitor-keys-5.0.0.tgz
+
+esquery@1.7.0
+  License: BSD-3-Clause
+  Resolved: https://registry.npmjs.org/esquery/-/esquery-1.7.0.tgz
+
+esrecurse@4.3.0
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/esrecurse/-/esrecurse-4.3.0.tgz
+
+estraverse@5.3.0
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/estraverse/-/estraverse-5.3.0.tgz
+
+estree-walker@3.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/estree-walker/-/estree-walker-3.0.3.tgz
+
+esutils@2.0.3
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/esutils/-/esutils-2.0.3.tgz
+
+expect-type@1.3.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/expect-type/-/expect-type-1.3.0.tgz
+
+fast-deep-equal@3.1.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/fast-deep-equal/-/fast-deep-equal-3.1.3.tgz
+
+fast-json-stable-stringify@2.1.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/fast-json-stable-stringify/-/fast-json-stable-stringify-2.1.0.tgz
+
+fast-levenshtein@2.0.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/fast-levenshtein/-/fast-levenshtein-2.0.6.tgz
+
+fdir@6.5.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/fdir/-/fdir-6.5.0.tgz
+
+file-entry-cache@8.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/file-entry-cache/-/file-entry-cache-8.0.0.tgz
+
+find-up@5.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/find-up/-/find-up-5.0.0.tgz
+
+flat-cache@4.0.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/flat-cache/-/flat-cache-4.0.1.tgz
+
+flatted@3.3.3
+  License: ISC
+  Resolved: https://registry.npmjs.org/flatted/-/flatted-3.3.3.tgz
+
+fsevents@2.3.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz
+
+gensync@1.0.0-beta.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/gensync/-/gensync-1.0.0-beta.2.tgz
+
+get-tsconfig@4.13.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/get-tsconfig/-/get-tsconfig-4.13.6.tgz
+
+glob-parent@6.0.2
+  License: ISC
+  Resolved: https://registry.npmjs.org/glob-parent/-/glob-parent-6.0.2.tgz
+
+iceberg-js@0.8.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/iceberg-js/-/iceberg-js-0.8.1.tgz
+
+ignore@7.0.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/ignore/-/ignore-7.0.5.tgz
+
+imurmurhash@0.1.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/imurmurhash/-/imurmurhash-0.1.4.tgz
+
+is-extglob@2.1.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/is-extglob/-/is-extglob-2.1.1.tgz
+
+is-glob@4.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/is-glob/-/is-glob-4.0.3.tgz
+
+isexe@2.0.0
+  License: ISC
+  Resolved: https://registry.npmjs.org/isexe/-/isexe-2.0.0.tgz
+
+jose@5.10.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/jose/-/jose-5.10.0.tgz
+
+js-tokens@4.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/js-tokens/-/js-tokens-4.0.0.tgz
+
+jsesc@3.1.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/jsesc/-/jsesc-3.1.0.tgz
+
+json-buffer@3.0.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/json-buffer/-/json-buffer-3.0.1.tgz
+
+json-schema-traverse@0.4.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/json-schema-traverse/-/json-schema-traverse-0.4.1.tgz
+
+json-stable-stringify-without-jsonify@1.0.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/json-stable-stringify-without-jsonify/-/json-stable-stringify-without-jsonify-1.0.1.tgz
+
+json5@2.2.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/json5/-/json5-2.2.3.tgz
+
+keyv@4.5.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/keyv/-/keyv-4.5.4.tgz
+
+kleur@4.1.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/kleur/-/kleur-4.1.5.tgz
+
+levn@0.4.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/levn/-/levn-0.4.1.tgz
+
+locate-path@6.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/locate-path/-/locate-path-6.0.0.tgz
+
+loose-envify@1.4.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/loose-envify/-/loose-envify-1.4.0.tgz
+
+lru-cache@5.1.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/lru-cache/-/lru-cache-5.1.1.tgz
+
+magic-string@0.30.21
+  License: MIT
+  Resolved: https://registry.npmjs.org/magic-string/-/magic-string-0.30.21.tgz
+
+miniflare@4.20260212.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/miniflare/-/miniflare-4.20260212.0.tgz
+
+miniflare/node_modules/ws@8.18.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/ws/-/ws-8.18.0.tgz
+
+minimatch@9.0.5
+  License: ISC
+  Resolved: https://registry.npmjs.org/minimatch/-/minimatch-9.0.5.tgz
+
+ms@2.1.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/ms/-/ms-2.1.3.tgz
+
+nanoid@3.3.11
+  License: MIT
+  Resolved: https://registry.npmjs.org/nanoid/-/nanoid-3.3.11.tgz
+
+natural-compare@1.4.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/natural-compare/-/natural-compare-1.4.0.tgz
+
+node-releases@2.0.27
+  License: MIT
+  Resolved: https://registry.npmjs.org/node-releases/-/node-releases-2.0.27.tgz
+
+obug@2.1.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/obug/-/obug-2.1.1.tgz
+
+optionator@0.9.4
+  License: MIT
+  Resolved: https://registry.npmjs.org/optionator/-/optionator-0.9.4.tgz
+
+p-limit@3.1.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/p-limit/-/p-limit-3.1.0.tgz
+
+p-locate@5.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/p-locate/-/p-locate-5.0.0.tgz
+
+path-exists@4.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/path-exists/-/path-exists-4.0.0.tgz
+
+path-key@3.1.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/path-key/-/path-key-3.1.1.tgz
+
+path-to-regexp@6.3.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/path-to-regexp/-/path-to-regexp-6.3.0.tgz
+
+pathe@2.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/pathe/-/pathe-2.0.3.tgz
+
+pg@8.18.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg/-/pg-8.18.0.tgz
+
+pg-cloudflare@1.3.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.3.0.tgz
+
+pg-connection-string@2.11.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg-connection-string/-/pg-connection-string-2.11.0.tgz
+
+pg-int8@1.0.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/pg-int8/-/pg-int8-1.0.1.tgz
+
+pg-pool@3.11.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg-pool/-/pg-pool-3.11.0.tgz
+
+pg-protocol@1.11.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg-protocol/-/pg-protocol-1.11.0.tgz
+
+pg-types@2.2.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz
+
+pgpass@1.0.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz
+
+picocolors@1.1.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/picocolors/-/picocolors-1.1.1.tgz
+
+picomatch@4.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/picomatch/-/picomatch-4.0.3.tgz
+
+playwright@1.58.2
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/playwright/-/playwright-1.58.2.tgz
+
+playwright-core@1.58.2
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/playwright-core/-/playwright-core-1.58.2.tgz
+
+postcss@8.5.6
+  License: MIT
+  Resolved: https://registry.npmjs.org/postcss/-/postcss-8.5.6.tgz
+
+postgres-array@2.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/postgres-array/-/postgres-array-2.0.0.tgz
+
+postgres-bytea@1.0.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/postgres-bytea/-/postgres-bytea-1.0.1.tgz
+
+postgres-date@1.0.7
+  License: MIT
+  Resolved: https://registry.npmjs.org/postgres-date/-/postgres-date-1.0.7.tgz
+
+postgres-interval@1.2.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/postgres-interval/-/postgres-interval-1.2.0.tgz
+
+prelude-ls@1.2.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/prelude-ls/-/prelude-ls-1.2.1.tgz
+
+punycode@2.3.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/punycode/-/punycode-2.3.1.tgz
+
+react@18.3.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/react/-/react-18.3.1.tgz
+
+react-dom@18.3.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz
+
+react-refresh@0.18.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/react-refresh/-/react-refresh-0.18.0.tgz
+
+react-router@6.30.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/react-router/-/react-router-6.30.3.tgz
+
+react-router-dom@6.30.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/react-router-dom/-/react-router-dom-6.30.3.tgz
+
+resolve-pkg-maps@1.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/resolve-pkg-maps/-/resolve-pkg-maps-1.0.0.tgz
+
+rollup@4.57.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/rollup/-/rollup-4.57.1.tgz
+
+scheduler@0.23.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/scheduler/-/scheduler-0.23.2.tgz
+
+semver@7.7.4
+  License: ISC
+  Resolved: https://registry.npmjs.org/semver/-/semver-7.7.4.tgz
+
+sharp@0.34.5
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz
+
+shebang-command@2.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/shebang-command/-/shebang-command-2.0.0.tgz
+
+shebang-regex@3.0.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/shebang-regex/-/shebang-regex-3.0.0.tgz
+
+siginfo@2.0.0
+  License: ISC
+  Resolved: https://registry.npmjs.org/siginfo/-/siginfo-2.0.0.tgz
+
+source-map-js@1.2.1
+  License: BSD-3-Clause
+  Resolved: https://registry.npmjs.org/source-map-js/-/source-map-js-1.2.1.tgz
+
+split2@4.2.0
+  License: ISC
+  Resolved: https://registry.npmjs.org/split2/-/split2-4.2.0.tgz
+
+stackback@0.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/stackback/-/stackback-0.0.2.tgz
+
+std-env@3.10.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/std-env/-/std-env-3.10.0.tgz
+
+tinybench@2.9.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/tinybench/-/tinybench-2.9.0.tgz
+
+tinyexec@1.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/tinyexec/-/tinyexec-1.0.2.tgz
+
+tinyglobby@0.2.15
+  License: MIT
+  Resolved: https://registry.npmjs.org/tinyglobby/-/tinyglobby-0.2.15.tgz
+
+tinyrainbow@3.0.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/tinyrainbow/-/tinyrainbow-3.0.3.tgz
+
+ts-api-utils@2.4.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/ts-api-utils/-/ts-api-utils-2.4.0.tgz
+
+tslib@2.8.1
+  License: 0BSD
+  Resolved: https://registry.npmjs.org/tslib/-/tslib-2.8.1.tgz
+
+tsx@4.21.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/tsx/-/tsx-4.21.0.tgz
+
+tsx/node_modules/fsevents@2.3.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz
+
+type-check@0.4.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/type-check/-/type-check-0.4.0.tgz
+
+typescript@5.9.3
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz
+
+undici@7.18.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/undici/-/undici-7.18.2.tgz
+
+undici-types@6.21.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/undici-types/-/undici-types-6.21.0.tgz
+
+unenv@2.0.0-rc.24
+  License: MIT
+  Resolved: https://registry.npmjs.org/unenv/-/unenv-2.0.0-rc.24.tgz
+
+update-browserslist-db@1.2.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/update-browserslist-db/-/update-browserslist-db-1.2.3.tgz
+
+uri-js@4.4.1
+  License: BSD-2-Clause
+  Resolved: https://registry.npmjs.org/uri-js/-/uri-js-4.4.1.tgz
+
+vite@7.3.1
+  License: MIT
+  Resolved: https://registry.npmjs.org/vite/-/vite-7.3.1.tgz
+
+vite/node_modules/fsevents@2.3.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz
+
+vitest@4.0.18
+  License: MIT
+  Resolved: https://registry.npmjs.org/vitest/-/vitest-4.0.18.tgz
+
+which@2.0.2
+  License: ISC
+  Resolved: https://registry.npmjs.org/which/-/which-2.0.2.tgz
+
+why-is-node-running@2.3.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/why-is-node-running/-/why-is-node-running-2.3.0.tgz
+
+word-wrap@1.2.5
+  License: MIT
+  Resolved: https://registry.npmjs.org/word-wrap/-/word-wrap-1.2.5.tgz
+
+workerd@1.20260212.0
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/workerd/-/workerd-1.20260212.0.tgz
+
+wrangler@4.65.0
+  License: MIT OR Apache-2.0
+  Resolved: https://registry.npmjs.org/wrangler/-/wrangler-4.65.0.tgz
+
+ws@8.19.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/ws/-/ws-8.19.0.tgz
+
+xtend@4.0.2
+  License: MIT
+  Resolved: https://registry.npmjs.org/xtend/-/xtend-4.0.2.tgz
+
+yallist@3.1.1
+  License: ISC
+  Resolved: https://registry.npmjs.org/yallist/-/yallist-3.1.1.tgz
+
+yocto-queue@0.1.0
+  License: MIT
+  Resolved: https://registry.npmjs.org/yocto-queue/-/yocto-queue-0.1.0.tgz
+
+youch@4.1.0-beta.10
+  License: MIT
+  Resolved: https://registry.npmjs.org/youch/-/youch-4.1.0-beta.10.tgz
+
+youch-core@0.3.3
+  License: MIT
+  Resolved: https://registry.npmjs.org/youch-core/-/youch-core-0.3.3.tgz
+
+zod@3.25.76
+  License: MIT
+  Resolved: https://registry.npmjs.org/zod/-/zod-3.25.76.tgz

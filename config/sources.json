@@ -1,0 +1,51 @@
+[
+  {
+    "name": "GDELT",
+    "status": "allowed",
+    "metadata_only": true
+  },
+  {
+    "name": "SEC EDGAR",
+    "status": "allowed",
+    "limit_rps": 10
+  },
+  {
+    "name": "BLS",
+    "status": "allowed"
+  },
+  {
+    "name": "BEA",
+    "status": "allowed"
+  },
+  {
+    "name": "EIA",
+    "status": "allowed"
+  },
+  {
+    "name": "Federal Reserve Board",
+    "status": "allowed"
+  },
+  {
+    "name": "ECB",
+    "status": "allowed",
+    "raw_locked": true
+  },
+  {
+    "name": "Eurostat",
+    "status": "conditional"
+  },
+  {
+    "name": "OECD",
+    "status": "conditional"
+  },
+  {
+    "name": "World Bank",
+    "status": "conditional"
+  },
+  {
+    "name": "FRED",
+    "status": "disallowed",
+    "hard_block": true
+  }
+]
+

@@ -1,0 +1,45 @@
+[
+  {
+    "code": "GDELT",
+    "commercial_status": "allowed",
+    "attribution_required": true,
+    "policy_url": "https://www.gdeltproject.org/about.html"
+  },
+  {
+    "code": "SEC_EDGAR",
+    "commercial_status": "allowed",
+    "attribution_required": true,
+    "policy_url": "https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data"
+  },
+  {
+    "code": "ECB_STATS",
+    "commercial_status": "allowed",
+    "attribution_required": true,
+    "policy_url": "https://www.ecb.europa.eu/stats/ecb_statistics/governance_and_quality_framework/html/usage_policy.en.html"
+  },
+  {
+    "code": "EUROSTAT_CONDITIONAL",
+    "commercial_status": "conditional",
+    "attribution_required": true,
+    "policy_url": "https://ec.europa.eu/eurostat/help/copyright-notice"
+  },
+  {
+    "code": "OECD_CONDITIONAL",
+    "commercial_status": "conditional",
+    "attribution_required": true,
+    "policy_url": "https://www.oecd.org/en/about/terms-conditions.html"
+  },
+  {
+    "code": "WORLD_BANK_CONDITIONAL",
+    "commercial_status": "conditional",
+    "attribution_required": true,
+    "policy_url": "https://datacatalog.worldbank.org/public-licenses"
+  },
+  {
+    "code": "FRED_DISALLOWED",
+    "commercial_status": "disallowed",
+    "attribution_required": true,
+    "policy_url": "https://fred.stlouisfed.org/legal/"
+  }
+]
+

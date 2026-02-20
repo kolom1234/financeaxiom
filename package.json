@@ -1,0 +1,37 @@
+{
+  "name": "open-finance-pulse",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run -w packages/shared build && npm run -w packages/policy build && npm run -w apps/worker build && npm run -w apps/web build",
+    "lint": "npm run --workspaces --if-present lint",
+    "typecheck": "npm run --workspaces --if-present typecheck",
+    "test:unit": "npm run -w packages/policy test && npm run -w apps/worker test:unit",
+    "test:integration": "npm run -w apps/worker test:integration",
+    "test:compliance": "npm run -w apps/worker test:compliance",
+    "test:e2e": "npm run -w apps/web test:e2e",
+    "test:load:sec": "node scripts/test/load-sec.js",
+    "test:release-gate": "node scripts/test/release-gate.js && npm run test:oss-notice-gate",
+    "test:oss-notice-gate": "node scripts/test/oss-notice-gate.js",
+    "test:cmp-deploy": "node scripts/test/cmp-deploy-smoke.js",
+    "gen:oss-notices": "node scripts/compliance/generate-third-party-notices.js",
+    "db:migrate": "echo \"Apply supabase/migrations/0001_init.sql with Supabase CLI or SQL editor.\"",
+    "db:seed": "echo \"Apply supabase/seed.sql with Supabase CLI or SQL editor.\""
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.11",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
+    "eslint": "^10.0.0",
+    "playwright": "^1.52.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.8.2",
+    "vitest": "^4.0.18"
+  }
+}

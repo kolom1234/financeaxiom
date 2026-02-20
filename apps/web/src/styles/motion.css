@@ -1,0 +1,119 @@
+.reveal-item {
+  animation: reveal-up var(--motion-slow) ease both;
+  animation-delay: calc(var(--stagger-index, 0) * 80ms);
+  will-change: transform, opacity;
+}
+
+.feed-card,
+.tab-btn,
+.btn,
+.nav-link,
+.sort-chip,
+.indicator-card,
+.coverage-card,
+.source-intel-item,
+.matrix-card,
+.precision-card {
+  transition:
+    transform var(--motion-medium) ease,
+    box-shadow var(--motion-medium) ease,
+    opacity var(--motion-fast) ease,
+    background var(--motion-medium) ease,
+    border-color var(--motion-medium) ease;
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ticker-track {
+  animation: ticker-loop var(--motion-marquee) linear infinite;
+  will-change: transform;
+}
+
+.feed-card::before {
+  animation: sheen-sweep var(--motion-breathe) ease-in-out infinite;
+}
+
+.coverage-card {
+  animation: depth-breathe var(--motion-breathe) ease-in-out infinite;
+}
+
+.precision-ring {
+  animation: depth-breathe var(--motion-breathe) ease-in-out infinite;
+}
+
+@keyframes ticker-loop {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes sheen-sweep {
+  0%,
+  75%,
+  100% {
+    transform: rotate(18deg) translateX(0);
+    opacity: 0;
+  }
+  35% {
+    transform: rotate(18deg) translateX(260%);
+    opacity: 0.8;
+  }
+}
+
+@keyframes depth-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 20ms;
+    --motion-medium: 20ms;
+    --motion-slow: 20ms;
+    --motion-marquee: 1ms;
+    --motion-breathe: 1ms;
+    --glow-intensity: 0.2;
+  }
+
+  .reveal-item {
+    animation: none;
+  }
+
+  .feed-card,
+  .tab-btn,
+  .btn,
+  .nav-link,
+  .sort-chip,
+  .indicator-card,
+  .coverage-card,
+  .source-intel-item,
+  .matrix-card,
+  .precision-card,
+  .ticker-track {
+    transition: opacity var(--motion-fast) linear;
+    transform: none;
+    animation: none;
+  }
+
+  .feed-card {
+    --tilt-x: 0;
+    --tilt-y: 0;
+  }
+}

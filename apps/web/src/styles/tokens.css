@@ -1,0 +1,39 @@
+:root {
+  --bg-primary: #090d12;
+  --bg-secondary: #0f1824;
+  --bg-gradient-a: #0b1220;
+  --bg-gradient-b: #11243a;
+
+  --panel-glass: rgba(19, 31, 49, 0.62);
+  --panel-border: rgba(123, 212, 255, 0.26);
+  --panel-gloss: rgba(183, 236, 255, 0.15);
+
+  --accent-neon: #44c6ff;
+  --accent-positive: #4ad6b0;
+  --accent-warning: #ffb566;
+  --accent-negative: #ff8a8a;
+  --glow-cyan: rgba(76, 214, 255, 0.48);
+  --text-primary: #e7f2ff;
+  --text-muted: #9db3cc;
+  --text-inverse: #06101c;
+  --text-subtle: #6f849b;
+
+  --motion-fast: 160ms;
+  --motion-medium: 320ms;
+  --motion-slow: 620ms;
+  --motion-marquee: 26s;
+  --motion-breathe: 6.2s;
+  --glow-intensity: 0.65;
+
+  --shadow-deep: 0 18px 48px rgba(0, 0, 0, 0.42);
+  --shadow-layered:
+    0 8px 24px rgba(0, 0, 0, 0.34),
+    0 1px 0 rgba(190, 236, 255, 0.16) inset;
+  --blur-glass: 16px;
+  --radius-xl: 20px;
+  --radius-lg: 14px;
+  --radius-sm: 10px;
+
+  --font-display: "Sora", "Space Grotesk", "Segoe UI", sans-serif;
+  --font-body: "Manrope", "Segoe UI", sans-serif;
+}

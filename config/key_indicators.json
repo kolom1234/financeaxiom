@@ -1,0 +1,65 @@
+[
+  {
+    "series_code": "US_CPI_YOY",
+    "title": "US CPI YoY",
+    "source": "BLS",
+    "region": "US",
+    "is_derived": true
+  },
+  {
+    "series_code": "US_UNEMPLOYMENT_RATE",
+    "title": "US Unemployment Rate",
+    "source": "BLS",
+    "region": "US",
+    "is_derived": false
+  },
+  {
+    "series_code": "US_NONFARM_PAYROLLS",
+    "title": "US Nonfarm Payrolls",
+    "source": "BLS",
+    "region": "US",
+    "is_derived": false
+  },
+  {
+    "series_code": "US_AVG_HOURLY_EARNINGS",
+    "title": "US Avg Hourly Earnings",
+    "source": "BLS",
+    "region": "US",
+    "is_derived": false
+  },
+  {
+    "series_code": "US_GDP_QOQ",
+    "title": "US GDP QoQ",
+    "source": "BEA",
+    "region": "US",
+    "is_derived": true
+  },
+  {
+    "series_code": "US_EIA_CRUDE_STOCKS",
+    "title": "US Crude Stocks",
+    "source": "EIA",
+    "region": "US",
+    "is_derived": false
+  },
+  {
+    "series_code": "EU_HICP_YOY",
+    "title": "EU HICP YoY",
+    "source": "ECB",
+    "region": "EU",
+    "is_derived": true
+  },
+  {
+    "series_code": "US_TREASURY_10Y",
+    "title": "US 10Y Treasury Yield",
+    "source": "Federal Reserve Board",
+    "region": "US",
+    "is_derived": false
+  },
+  {
+    "series_code": "EU_UNEMPLOYMENT",
+    "title": "EU Unemployment",
+    "source": "Eurostat",
+    "region": "EU",
+    "is_derived": false
+  }
+]

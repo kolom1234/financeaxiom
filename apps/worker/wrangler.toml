@@ -1,0 +1,64 @@
+name = "open-finance-pulse-worker"
+main = "src/index.ts"
+compatibility_date = "2026-02-16"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/2 * * * *", "*/5 * * * *", "0 */3 * * *"]
+
+[vars]
+GDELT_MODE = "GKG"
+ADS_PROVIDER = "google"
+CMP_PROVIDER = "didomi"
+SUPABASE_URL = "https://mxqjokqvmprlmbnlwfcb.supabase.co"
+SUPABASE_JWKS_URL = "https://mxqjokqvmprlmbnlwfcb.supabase.co/auth/v1/.well-known/jwks.json"
+ALLOWED_ORIGINS = "https://financeaxiom.com,https://www.financeaxiom.com,https://open-finance-pulse.pages.dev"
+AUTH_ALLOWED_REDIRECT_ORIGINS = "https://financeaxiom.com,https://www.financeaxiom.com,https://open-finance-pulse.pages.dev"
+
+[[kv_namespaces]]
+binding = "OFP_KV"
+id = "425a66654bba4f48b8866dbbb27f2587"
+
+[[queues.producers]]
+queue = "ofp-ingest"
+binding = "INGEST_QUEUE"
+
+[[queues.producers]]
+queue = "ofp-push"
+binding = "PUSH_QUEUE"
+
+[[queues.consumers]]
+queue = "ofp-ingest"
+
+[[queues.consumers]]
+queue = "ofp-push"
+
+[[r2_buckets]]
+binding = "AUDIT_R2"
+bucket_name = "ofp-audit"
+
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "8d6eba0b3c624c96bcf5b1ea63866497"
+localConnectionString = "postgresql://postgres:postgres@127.0.0.1:54322/postgres"
+
+[[durable_objects.bindings]]
+name = "SEC_LIMITER_DO"
+class_name = "SecLimiterDO"
+
+[[durable_objects.bindings]]
+name = "EVENT_HUB_DO"
+class_name = "EventHubDO"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER_DO"
+class_name = "RateLimiterDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SecLimiterDO", "EventHubDO"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RateLimiterDO"]
+
