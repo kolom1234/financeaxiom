@@ -3,6 +3,8 @@
 [English](./README.md) | [한국어](./README.ko.md)
 
 데이터 소스 라이선스 준수, 광고 동의 정책, 배포 게이트 검증을 명시적으로 내장한 Cloudflare 기반 금융 인텔리전스 플랫폼입니다.
+link : financeaxiom.com
+<img width="984" height="1284" alt="image" src="https://github.com/user-attachments/assets/44c21eb4-1f08-42e9-aa5c-1c12448b197e" />
 
 ## 목차
 
