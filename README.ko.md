@@ -1,9 +1,9 @@
-# Open Finance Pulse
+# FinanceAxiom — Open Finance Pulse
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-데이터 소스 라이선스 준수, 광고 동의 정책, 배포 게이트 검증을 명시적으로 내장한 Cloudflare 기반 금융 인텔리전스 플랫폼입니다.
-link : financeaxiom.com
+**[FinanceAxiom](https://financeaxiom.com)** 은 `financeaxiom.com`에 배포된 금융 인텔리전스 플랫폼입니다. 이 저장소는 FinanceAxiom을 구동하는 핵심 데이터 엔진이자 웹 애플리케이션인 **Open Finance Pulse**를 포함하며, 데이터 소스 라이선스 준수, 광고 동의 정책, 배포 게이트 검증을 명시적으로 내장한 Cloudflare 기반 아키텍처로 구성됩니다.
+
 <img width="984" height="1284" alt="image" src="https://github.com/user-attachments/assets/44c21eb4-1f08-42e9-aa5c-1c12448b197e" />
 
 ## 목차
@@ -24,7 +24,7 @@ link : financeaxiom.com
 
 ## 1. 프로젝트 개요
 
-Open Finance Pulse는 다음을 결합한 모노레포입니다.
+**FinanceAxiom** (`financeaxiom.com`)은 외부에 공개된 금융 인텔리전스 서비스입니다. **Open Finance Pulse**는 이를 구동하는 모노레포로, 다음을 결합합니다.
 
 - Cloudflare Pages에 배포되는 React/Vite 프론트엔드 (`apps/web`)
 - `/api/*`를 제공하는 Cloudflare Worker 백엔드 (`apps/worker`)
@@ -101,7 +101,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-  R[open-finance-pulse]
+  R[FinanceAxiom / open-finance-pulse]
   R --> A[apps/web]
   R --> B[apps/worker]
   R --> C[packages/shared]

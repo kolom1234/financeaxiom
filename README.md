@@ -1,11 +1,10 @@
-# Open Finance Pulse
+# FinanceAxiom — Open Finance Pulse
 
 [English](./README.md) | [한국어](./README.ko.md)
 
-Financial intelligence platform built on a Cloudflare-first architecture, with explicit legal/compliance controls for data-source usage, ad-consent gating, and release-time audit checks.
-link : financeaxiom.com
-<img width="984" height="1284" alt="image" src="https://github.com/user-attachments/assets/44c21eb4-1f08-42e9-aa5c-1c12448b197e" />
+**[FinanceAxiom](https://financeaxiom.com)** is a financial intelligence platform deployed at `financeaxiom.com`. This repository contains **Open Finance Pulse** — the core data engine and web application that powers FinanceAxiom, built on a Cloudflare-first architecture with explicit legal/compliance controls for data-source usage, ad-consent gating, and release-time audit checks.
 
+<img width="984" height="1284" alt="image" src="https://github.com/user-attachments/assets/44c21eb4-1f08-42e9-aa5c-1c12448b197e" />
 
 ## Table of Contents
 
@@ -25,7 +24,7 @@ link : financeaxiom.com
 
 ## 1. Executive Summary
 
-Open Finance Pulse is a monorepo that combines:
+**FinanceAxiom** (`financeaxiom.com`) is the public-facing financial intelligence product. **Open Finance Pulse** is the monorepo that powers it, combining:
 
 - A React/Vite frontend (`apps/web`) deployed to Cloudflare Pages
 - A Cloudflare Worker backend (`apps/worker`) serving `/api/*` routes
@@ -102,7 +101,7 @@ sequenceDiagram
 
 ```mermaid
 graph TD
-  R[open-finance-pulse]
+  R[FinanceAxiom / open-finance-pulse]
   R --> A[apps/web]
   R --> B[apps/worker]
   R --> C[packages/shared]
