@@ -4,13 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
     "dev": "wrangler dev",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --config ../../eslint.config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:unit": "vitest run --config vitest.config.ts test/unit",
     "test:integration": "vitest run --config vitest.config.ts test/integration",
-    "test:compliance": "vitest run --config vitest.config.ts test/compliance"
+    "test:compliance": "vitest run --config vitest.config.ts test/compliance",
+    "test": "vitest run --config vitest.config.ts"
   },
   "dependencies": {
     "@ofp/policy": "0.1.0",

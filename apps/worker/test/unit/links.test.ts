@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveOpenSourceUrl } from "../../src/services/postgres";
+import { resolveOpenSourceUrl } from "../../src/services/links";
 
 describe("resolveOpenSourceUrl", () => {
   it("returns direct urls for valid http links", () => {

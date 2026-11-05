@@ -1,50 +1,82 @@
 import { gateB_newsMetadataOnly, gateF_fredHardBlock } from "../compliance/gates";
+import { buildGdeltSearchUrl } from "../services/links";
 import type { InternalContentItem } from "../types";
+
+export { buildGdeltSearchUrl };
+
+/** GDELT DOC API timelines use 15-minute steps for timespans under 72 hours. */
+export const GDELT_TIMESPAN = "24h";
+export const GDELT_INTERVAL_MINUTES = 15;
 
 export interface GdeltInput {
   entity: string;
-  window: string;
   external_url: string;
-  score?: number;
-  scoreDelta?: number;
+  /** Distinct articles matched in the latest complete interval (TimelineVolRaw). */
+  articleCount?: number;
+  /** Change versus the previous interval. */
+  articleDelta?: number;
   publisher_headline?: string;
   article_body?: string;
   image_url?: string;
 }
 
-const WINDOW_LABEL_MAP: Record<string, string> = {
-  "5m": "5-minute",
-  "10m": "10-minute"
-};
-
-function normalizeEntity(input: string): string {
-  return input.trim();
+export interface GdeltTimelinePoint {
+  intervalEnd: string;
+  value: number;
 }
 
-function describeWindow(window: string): string {
-  return WINDOW_LABEL_MAP[window] ?? `${window} window`;
-}
-
-export function buildGdeltHeadline(input: GdeltInput): string {
-  const entity = normalizeEntity(input.entity);
-  const base = `${entity} index activity (${describeWindow(input.window)})`;
-  if (input.score === undefined || input.score === null) {
+export function buildGdeltHeadline(input: Pick<GdeltInput, "entity" | "articleCount" | "articleDelta">): string {
+  const base = `${input.entity.trim()} index activity (${GDELT_INTERVAL_MINUTES}-minute)`;
+  if (input.articleCount === undefined) {
     return base;
   }
-  const mentions = Math.round(input.score);
-  const delta = input.scoreDelta;
-  if (delta === undefined || delta === null) {
-    return `${base}: ${mentions} mentions`;
+  const count = `${base}: ${Math.round(input.articleCount)} articles`;
+  if (input.articleDelta === undefined) {
+    return count;
   }
-  const deltaText = delta > 0 ? ` +${Math.round(delta)} vs previous` : ` ${Math.round(delta)} vs previous`;
-  return `${base}: ${mentions} mentions${deltaText}`;
+  const delta = Math.round(input.articleDelta);
+  return `${count} ${delta > 0 ? `+${delta}` : String(delta)} vs previous`;
 }
 
-export function buildGdeltSearchUrl(entity: string): string {
-  const query = encodeURIComponent(entity.trim());
-  return `https://api.gdeltproject.org/api/v2/doc/doc?query=${query}&mode=artlist&format=html&sort=datedesc&maxrecords=5`;
+/** "20261105T001500Z" -> ISO string. */
+function parseGdeltDate(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const match = value.match(/^(\d{4})(\d{2})(\d{2})T?(\d{2})(\d{2})(\d{2})Z?$/);
+  if (!match) {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? null : new Date(parsed).toISOString();
+  }
+  return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}.000Z`;
 }
 
+/**
+ * Parses TimelineVolRaw JSON. Accepts both `{timeline:[{series, data:[{date,value}]}]}`
+ * and a flat `{timeline:[{date,value}]}`. The final interval is dropped because it
+ * may still be accumulating articles, which would bias "vs previous" downwards.
+ */
+export function parseGdeltTimeline(json: unknown): GdeltTimelinePoint[] {
+  const timeline = (json as { timeline?: unknown })?.timeline;
+  if (!Array.isArray(timeline) || timeline.length === 0) {
+    return [];
+  }
+  const first = timeline[0] as Record<string, unknown>;
+  const rawPoints = Array.isArray(first?.data) ? (first.data as unknown[]) : timeline;
+  const points: GdeltTimelinePoint[] = [];
+  for (const raw of rawPoints) {
+    const entry = raw as Record<string, unknown>;
+    const intervalEnd = parseGdeltDate(entry.date);
+    const value = typeof entry.value === "number" ? entry.value : Number(entry.value);
+    if (intervalEnd && Number.isFinite(value)) {
+      points.push({ intervalEnd, value });
+    }
+  }
+  points.sort((left, right) => left.intervalEnd.localeCompare(right.intervalEnd));
+  return points.slice(0, -1);
+}
+
+/** Metadata-only GDELT record (Gate B: no publisher headline/body/image; Gate F: no FRED). */
 export function transformGdeltRecord(input: GdeltInput): InternalContentItem {
   gateF_fredHardBlock("GDELT");
   gateB_newsMetadataOnly(input as unknown as Record<string, unknown>);
@@ -66,8 +98,8 @@ export function transformGdeltRecord(input: GdeltInput): InternalContentItem {
     is_breaking: true,
     region: "GLOBAL",
     meta: {
-      window: input.window,
-      score: input.score ?? null
+      interval_minutes: GDELT_INTERVAL_MINUTES,
+      mention_count: input.articleCount ?? null
     }
   };
 }

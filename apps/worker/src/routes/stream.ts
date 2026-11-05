@@ -1,26 +1,32 @@
-import { corsHeaders, errorJson } from "./utils";
-import { fetchFeedFromDb } from "../services/postgres";
-import { AuthError, requireUserId } from "../services/auth";
+import { z } from "zod";
+import { requireUserId } from "../services/auth";
+import { hasDatabase } from "../services/db";
+import { allowMemoryReadFallback } from "../services/fallbackPolicy";
+import { describeError, logEvent } from "../services/log";
+import { queryFeedSince } from "../services/postgres";
 import { checkRateLimit, rateLimitKey, type RateLimitConfig } from "../services/rateLimit";
 import { MemoryStore } from "../services/store";
+import { HttpError, clientIp, corsHeaders, formatRetryAfterSeconds, parseQuery } from "./utils";
 import type { Env } from "../types";
-import type { FeedItemPayload } from "@ofp/shared";
 
 type Tab = "breaking" | "macro" | "filings";
 
-const ALLOWED_TABS = new Set<Tab>(["breaking", "macro", "filings"]);
-const STREAM_POLL_INTERVAL_MS = 1500;
+const STREAM_POLL_INTERVAL_MS = 5000;
 const STREAM_DURATION_MS = 25000;
-const STREAM_HEARTBEAT_MS = 7000;
+const STREAM_HEARTBEAT_MS = 10000;
 const STREAM_POLL_LIMIT = 20;
 const STREAM_CONNECT_LIMIT: RateLimitConfig = { limit: 20, windowMs: 60 * 1000 };
-const STREAM_RATE_SCOPE = "connect";
 
-type StreamEvent = {
-  item_id: string;
-  event_time: string;
-  tab: Tab;
-};
+const StreamQuerySchema = z.object({
+  tab: z.enum(["breaking", "macro", "filings"]).default("breaking"),
+  since: z
+    .string()
+    .max(40)
+    .refine((value) => !Number.isNaN(Date.parse(value)), "must be an ISO timestamp")
+    .optional()
+});
+
+type StreamEvent = { item_id: string; event_time: string; tab: Tab };
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
@@ -28,216 +34,103 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function parseSince(value: string | null): number | null {
-  if (!value) {
-    return null;
-  }
-  const parsed = Date.parse(value);
-  if (Number.isNaN(parsed)) {
-    return null;
-  }
-  return parsed;
-}
+const encoder = new TextEncoder();
 
-function safeTabText(value: string | null): Tab | null {
-  if (value === "breaking" || value === "macro" || value === "filings") {
-    return value;
-  }
-  return null;
-}
-
-function clientIp(request: Request): string {
-  const candidate =
-    request.headers.get("cf-connecting-ip") ??
-    request.headers.get("x-forwarded-for") ??
-    request.headers.get("x-real-ip");
-
-  if (!candidate) {
-    return "unknown";
-  }
-
-  const first = candidate.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : "unknown";
-}
-
-function formatRateLimitSeconds(milliseconds: number): number {
-  return Math.max(1, Math.ceil(milliseconds / 1000));
-}
-
-function safeEnqueue(controller: ReadableStreamDefaultController, chunk: Uint8Array): boolean {
+function send(controller: ReadableStreamDefaultController, event: string, payload: unknown): boolean {
   try {
-    controller.enqueue(chunk);
+    controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`));
     return true;
   } catch {
     return false;
   }
 }
 
-function safeClose(controller: ReadableStreamDefaultController): void {
+function close(controller: ReadableStreamDefaultController): void {
   try {
     controller.close();
   } catch {
-    // Stream may already be closed by the consumer.
+    // already closed by the consumer
   }
 }
 
-function emitEvent(controller: ReadableStreamDefaultController, payload: StreamEvent): boolean {
-  const encoder = new TextEncoder();
-  const serialized = JSON.stringify(payload);
-  return (
-    safeEnqueue(controller, encoder.encode("event: item\n")) &&
-    safeEnqueue(controller, encoder.encode(`data: ${serialized}\n\n`))
-  );
-}
-
-function emitHeartbeat(controller: ReadableStreamDefaultController): boolean {
-  const encoder = new TextEncoder();
-  const payload = {
-    status: "heartbeat",
-    ts: new Date().toISOString()
-  };
-  return (
-    safeEnqueue(controller, encoder.encode("event: heartbeat\n")) &&
-    safeEnqueue(controller, encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
-  );
-}
-
-async function loadStreamItemsFromDb(tab: Tab, env: Env, sinceMs: number): Promise<StreamEvent[]> {
-  try {
-    const rows = await fetchFeedFromDb(env, {
-      tab,
-      query: "",
-      region: "GLOBAL",
-      limit: STREAM_POLL_LIMIT,
-      offset: 0
-    });
-    if (!rows) {
-      return [];
-    }
-    return rows
-      .filter((item) => Date.parse(item.event_time) > sinceMs)
-      .map((item: FeedItemPayload) => ({
-        item_id: item.item_id,
-        event_time: item.event_time,
-        tab
-      }))
-      .sort((left, right) => left.event_time.localeCompare(right.event_time));
-  } catch {
-    return [];
+async function loadNewItems(env: Env, tab: Tab, sinceIso: string): Promise<StreamEvent[]> {
+  if (hasDatabase(env)) {
+    const rows = await queryFeedSince(env, { tab, sinceIso, limit: STREAM_POLL_LIMIT });
+    return rows.map((row) => ({ ...row, tab }));
   }
-}
-
-async function loadStreamItemsFromMemory(tab: Tab, sinceMs: number): Promise<StreamEvent[]> {
+  // Only reachable in local development (no database + explicit fallback flag).
   return MemoryStore.get()
     .listFeed(tab, "", "GLOBAL")
-    .filter((item) => Date.parse(item.event_time) > sinceMs)
-    .map((item) => ({
-      item_id: item.item_id,
-      event_time: item.event_time,
-      tab
-    }))
-    .sort((left, right) => left.event_time.localeCompare(right.event_time));
+    .filter((item) => item.event_time > sinceIso)
+    .sort((left, right) => left.event_time.localeCompare(right.event_time))
+    .slice(0, STREAM_POLL_LIMIT)
+    .map((item) => ({ item_id: item.item_id, event_time: item.event_time, tab }));
 }
 
 export async function handleStream(request: Request, env: Env): Promise<Response> {
-  let userId: string;
-  try {
-    userId = await requireUserId(request, env);
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return errorJson(request, env, 401, error.message);
-    }
-    return errorJson(request, env, 500, "Unable to authorize stream.");
-  }
-
+  const userId = await requireUserId(request, env);
   if (!env.RATE_LIMITER_DO) {
-    return errorJson(request, env, 503, "Rate limiter is not configured.");
+    throw new HttpError(503, "Rate limiter is not configured.");
+  }
+  const limit = await checkRateLimit(
+    env.OFP_KV,
+    rateLimitKey("stream", `${userId}:${clientIp(request)}`, "connect"),
+    STREAM_CONNECT_LIMIT,
+    Date.now(),
+    env.RATE_LIMITER_DO
+  );
+  if (!limit.allowed) {
+    const seconds = formatRetryAfterSeconds(limit.retryAfterMs);
+    throw new HttpError(429, `Stream connect rate limited. Retry after ${seconds} seconds.`, { "retry-after": seconds });
   }
 
-  const streamRateKey = rateLimitKey("stream", `${userId}:${clientIp(request)}`, STREAM_RATE_SCOPE);
-  const streamLimit = await checkRateLimit(env.OFP_KV, streamRateKey, STREAM_CONNECT_LIMIT, Date.now(), env.RATE_LIMITER_DO);
-  if (!streamLimit.allowed) {
-    return errorJson(
-      request,
-      env,
-      429,
-      `Stream connect rate limited. Retry after ${formatRateLimitSeconds(streamLimit.retryAfterMs)} seconds.`,
-      { "retry-after": String(formatRateLimitSeconds(streamLimit.retryAfterMs)) }
-    );
+  const { tab, since } = parseQuery(new URL(request.url), StreamQuerySchema);
+  if (!hasDatabase(env) && !allowMemoryReadFallback(env)) {
+    throw new HttpError(503, "Persistent feed store is unavailable.");
   }
 
-  const url = new URL(request.url);
-  const tab = safeTabText(url.searchParams.get("tab")) ?? "breaking";
-  if (!ALLOWED_TABS.has(tab)) {
-    return errorJson(request, env, 400, "Invalid stream tab.");
-  }
-
-  const sinceRaw = url.searchParams.get("since");
-  if (sinceRaw !== null && parseSince(sinceRaw) === null) {
-    return errorJson(request, env, 400, "Invalid since timestamp.");
-  }
-
-  const since = sinceRaw ? parseSince(sinceRaw) ?? 0 : 0;
+  let cursorIso = since ? new Date(Date.parse(since)).toISOString() : new Date(0).toISOString();
 
   const stream = new ReadableStream({
     start(controller) {
       void (async () => {
         const startedAt = Date.now();
-        let cursorMs = since;
         const seen = new Set<string>();
-        let lastHeartbeatAt = Date.now();
-        let emitted = false;
+        let lastSentAt = Date.now();
 
-        while (Date.now() - startedAt < STREAM_DURATION_MS) {
-          if (request.signal?.aborted) {
-            break;
-          }
-
-          const dbRows = await loadStreamItemsFromDb(tab, env, cursorMs);
-          const items = dbRows.length > 0 ? dbRows : await loadStreamItemsFromMemory(tab, cursorMs);
-
+        while (Date.now() - startedAt < STREAM_DURATION_MS && !request.signal?.aborted) {
+          const items = await loadNewItems(env, tab, cursorIso);
           for (const item of items) {
             if (seen.has(item.item_id)) {
               continue;
             }
             seen.add(item.item_id);
-            if (!emitEvent(controller, item)) {
-              safeClose(controller);
+            if (!send(controller, "item", item)) {
+              close(controller);
               return;
             }
-            emitted = true;
-            lastHeartbeatAt = Date.now();
-
-            const eventTime = Date.parse(item.event_time);
-            if (!Number.isNaN(eventTime) && eventTime > cursorMs) {
-              cursorMs = eventTime;
+            lastSentAt = Date.now();
+            if (item.event_time > cursorIso) {
+              cursorIso = item.event_time;
             }
           }
 
-          if (!emitted && Date.now() - lastHeartbeatAt >= STREAM_HEARTBEAT_MS && !emitHeartbeat(controller)) {
-            safeClose(controller);
-            return;
-          }
-
-          if (!emitted && Date.now() - lastHeartbeatAt >= STREAM_HEARTBEAT_MS) {
-            lastHeartbeatAt = Date.now();
-          }
-
-          if (request.signal?.aborted) {
-            break;
+          if (Date.now() - lastSentAt >= STREAM_HEARTBEAT_MS) {
+            if (!send(controller, "heartbeat", { status: "heartbeat", ts: new Date().toISOString() })) {
+              close(controller);
+              return;
+            }
+            lastSentAt = Date.now();
           }
           await sleep(STREAM_POLL_INTERVAL_MS);
         }
-
-        safeClose(controller);
+        close(controller);
       })().catch((error) => {
-        console.error("stream_failed", error);
+        logEvent("error", "stream_failed", describeError(error));
         if (!request.signal?.aborted) {
-          const encoder = new TextEncoder();
-          safeEnqueue(controller, encoder.encode("event: error\n"));
-          safeEnqueue(controller, encoder.encode("data: {\"error\":\"stream_failed\"}\n\n"));
+          send(controller, "error", { error: "stream_failed" });
         }
-        safeClose(controller);
+        close(controller);
       });
     }
   });
@@ -245,8 +138,6 @@ export async function handleStream(request: Request, env: Env): Promise<Response
   const headers = corsHeaders(request, env);
   headers.set("content-type", "text/event-stream");
   headers.set("cache-control", "no-cache");
-  headers.set("connection", "keep-alive");
   headers.set("x-accel-buffering", "no");
-
   return new Response(stream, { headers });
 }

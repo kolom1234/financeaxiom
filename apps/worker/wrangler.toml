@@ -3,13 +3,15 @@ main = "src/index.ts"
 compatibility_date = "2026-02-16"
 compatibility_flags = ["nodejs_compat"]
 
+# Workers Logs: structured JSON logs (services/log.ts) are indexed and queryable.
+[observability]
+enabled = true
+
 [triggers]
-crons = ["*/2 * * * *", "*/5 * * * *", "0 */3 * * *"]
+# Must match CRON in src/ingest/schedule.ts (enforced by test/unit/scheduler.test.ts).
+crons = ["*/2 * * * *", "*/5 * * * *", "0 */3 * * *", "17 4 * * *"]
 
 [vars]
-GDELT_MODE = "GKG"
-ADS_PROVIDER = "google"
-CMP_PROVIDER = "didomi"
 SUPABASE_URL = "https://mxqjokqvmprlmbnlwfcb.supabase.co"
 SUPABASE_JWKS_URL = "https://mxqjokqvmprlmbnlwfcb.supabase.co/auth/v1/.well-known/jwks.json"
 ALLOWED_ORIGINS = "https://financeaxiom.com,https://www.financeaxiom.com,https://open-finance-pulse.pages.dev"
@@ -27,11 +29,17 @@ binding = "INGEST_QUEUE"
 queue = "ofp-push"
 binding = "PUSH_QUEUE"
 
+# Failed messages are retried with backoff (message.retry({ delaySeconds })) and,
+# after max_retries, moved to a dead-letter queue instead of being dropped silently.
 [[queues.consumers]]
 queue = "ofp-ingest"
+max_retries = 5
+dead_letter_queue = "ofp-ingest-dlq"
 
 [[queues.consumers]]
 queue = "ofp-push"
+max_retries = 3
+dead_letter_queue = "ofp-push-dlq"
 
 [[r2_buckets]]
 binding = "AUDIT_R2"

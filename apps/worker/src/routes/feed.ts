@@ -1,78 +1,52 @@
-import { cacheGetJson, cachePutJson } from "../services/cache";
-import { allowMemoryReadFallback } from "../services/fallbackPolicy";
-import { fetchFeedFromDb, resolveOpenSourceUrl } from "../services/postgres";
-import { MemoryStore } from "../services/store";
-import { errorJson, okJson } from "./utils";
-import type { Env } from "../types";
+import { z } from "zod";
 import type { FeedItemPayload } from "@ofp/shared";
+import { compareFeedOrder, decodeFeedCursor, encodeFeedCursor, isAfterCursor } from "../services/cursor";
+import { hasDatabase } from "../services/db";
+import { allowMemoryReadFallback } from "../services/fallbackPolicy";
+import { withOpenSourceLinks } from "../services/links";
+import { queryFeed } from "../services/postgres";
+import { MemoryStore } from "../services/store";
+import { HttpError, okJson, parseQuery } from "./utils";
+import type { Env } from "../types";
 
-function applyOpenSourceFallback(items: FeedItemPayload[]): FeedItemPayload[] {
-  return items.map((item) => ({
-    ...item,
-    external_url: resolveOpenSourceUrl({
-      externalUrl: item.external_url ?? null,
-      itemType: item.item_type,
-      headline: item.headline,
-      entities: item.entities.map((entity) => ({
-        name: entity.name,
-        slug: entity.slug
-      }))
-    })
-  }));
-}
+const PAGE_SIZE = 20;
 
-const ALLOWED_TABS = new Set(["breaking", "filings", "macro", "newsindex"]);
+const FeedQuerySchema = z.object({
+  tab: z.enum(["breaking", "filings", "macro", "newsindex"]).default("breaking"),
+  query: z
+    .string()
+    .max(160, "must be 160 characters or fewer")
+    .default("")
+    .transform((value) => value.trim().replace(/\s+/g, " ")),
+  region: z.enum(["US", "EU", "GLOBAL"]).default("GLOBAL"),
+  cursor: z.string().max(200).optional()
+});
 
 export async function handleFeed(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const tab = url.searchParams.get("tab") ?? "breaking";
-  if (!ALLOWED_TABS.has(tab)) {
-    return errorJson(request, env, 400, "Invalid tab query.");
+  const params = parseQuery(new URL(request.url), FeedQuerySchema);
+  const cursor = params.cursor ? decodeFeedCursor(params.cursor) : null;
+  if (params.cursor && !cursor) {
+    throw new HttpError(400, "Invalid query. cursor: malformed pagination cursor");
   }
 
-  const query = url.searchParams.get("query") ?? "";
-  const region = url.searchParams.get("region") ?? "GLOBAL";
-  if (query.length > 160) {
-    return errorJson(request, env, 400, "query must be 160 characters or fewer.");
+  let items: FeedItemPayload[];
+  let nextCursor: string | null;
+
+  if (hasDatabase(env)) {
+    const page = await queryFeed(env, { tab: params.tab, query: params.query, region: params.region, limit: PAGE_SIZE, cursor });
+    items = page.items;
+    nextCursor = page.nextCursor ? encodeFeedCursor(page.nextCursor) : null;
+  } else if (allowMemoryReadFallback(env)) {
+    const all = MemoryStore.get()
+      .listFeed(params.tab, params.query, params.region)
+      .sort(compareFeedOrder)
+      .filter((item) => !cursor || isAfterCursor(item, cursor));
+    items = withOpenSourceLinks(all.slice(0, PAGE_SIZE));
+    const last = items[items.length - 1];
+    nextCursor = all.length > PAGE_SIZE && last ? encodeFeedCursor({ eventTime: last.event_time, itemId: last.item_id }) : null;
+  } else {
+    throw new HttpError(503, "Persistent feed store is unavailable.");
   }
 
-  const cursorRaw = url.searchParams.get("cursor");
-  const offset = cursorRaw ? Number.parseInt(cursorRaw, 10) : 0;
-  if (!Number.isFinite(offset) || Number.isNaN(offset) || offset < 0 || offset > 1000) {
-    return errorJson(request, env, 400, "cursor must be an integer between 0 and 1000.");
-  }
-
-  const pageSize = 20;
-  const cacheKey = `feed:${tab}:${query}:${region}:${offset}`;
-
-  const cached = await cacheGetJson<{ items: unknown[]; next_cursor: string | null }>(env.OFP_KV, cacheKey);
-  if (cached) {
-    const normalizedCachedItems = applyOpenSourceFallback(cached.items as FeedItemPayload[]);
-    return okJson(
-      request,
-      env,
-      { items: normalizedCachedItems, next_cursor: cached.next_cursor },
-      { cursor: cached.next_cursor, cache: { hit: true, ttl: 60 } }
-    );
-  }
-
-  const dbItems = await fetchFeedFromDb(env, {
-    tab: tab as "breaking" | "filings" | "macro" | "newsindex",
-    query,
-    region,
-    limit: pageSize,
-    offset
-  });
-
-  if (!dbItems && !allowMemoryReadFallback(env)) {
-    return errorJson(request, env, 503, "Persistent feed store is unavailable.");
-  }
-
-  const items = applyOpenSourceFallback(dbItems ?? MemoryStore.get().listFeed(tab as "breaking" | "filings" | "macro" | "newsindex", query, region));
-  const sliced = dbItems ? items : items.slice(offset, offset + pageSize);
-  const nextCursor = sliced.length === pageSize ? String(offset + pageSize) : null;
-  const payload = { items: sliced, next_cursor: nextCursor };
-
-  await cachePutJson(env.OFP_KV, cacheKey, payload, 60);
-  return okJson(request, env, payload, { cursor: nextCursor, cache: { hit: false, ttl: 60 } });
+  return okJson(request, env, { items, next_cursor: nextCursor }, { cursor: nextCursor });
 }

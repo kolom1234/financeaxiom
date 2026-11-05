@@ -1,14 +1,24 @@
 import { envelope } from "@ofp/shared";
+import type { z } from "zod";
 import type { Env } from "../types";
 
 const DEFAULT_JSON_BODY_MAX_BYTES = 16 * 1024;
 
-export class RequestBodyError extends Error {
+/** An error that maps directly to an HTTP response (message is safe to show). */
+export class HttpError extends Error {
   constructor(
     readonly status: number,
-    message: string
+    message: string,
+    readonly headers: Record<string, string> = {}
   ) {
     super(message);
+    this.name = "HttpError";
+  }
+}
+
+export class RequestBodyError extends HttpError {
+  constructor(status: number, message: string) {
+    super(status, message);
     this.name = "RequestBodyError";
   }
 }
@@ -25,8 +35,24 @@ function normalizeOrigin(input?: string | null): string | null {
     const url = new URL(trimmed);
     return `${url.protocol}//${url.host}`.toLowerCase();
   } catch {
-    return trimmed.toLowerCase();
+    return null;
   }
+}
+
+/** Parses a comma-separated origin allowlist into normalised origins. */
+export function parseOriginList(raw: string | undefined): string[] {
+  if (!raw?.trim()) {
+    return [];
+  }
+  return raw
+    .split(",")
+    .map((entry) => normalizeOrigin(entry))
+    .filter((value): value is string => Boolean(value));
+}
+
+/** Normalised origin of an absolute URL, or null. */
+export function originOf(value: string): string | null {
+  return normalizeOrigin(value);
 }
 
 function applySecurityHeaders(headers: Headers): void {
@@ -39,83 +65,18 @@ function applySecurityHeaders(headers: Headers): void {
   headers.set("cache-control", "no-store");
 }
 
-function allowedOrigin(request: Request, env: Env): string {
-  const requestOrigin = request.headers.get("origin");
+/** The request origin if it is allowlisted, otherwise null (no ACAO header is sent). */
+function allowedOrigin(request: Request, env: Env): string | null {
+  const requestOrigin = normalizeOrigin(request.headers.get("origin"));
   if (!requestOrigin) {
-    return "null";
-  }
-
-  if (!env.ALLOWED_ORIGINS?.trim()) {
-    return "null";
-  }
-
-  const normalizedRequestOrigin = normalizeOrigin(requestOrigin);
-  if (!normalizedRequestOrigin) {
-    return "null";
-  }
-
-  const allowed = env.ALLOWED_ORIGINS.split(",")
-    .map((entry) => normalizeOrigin(entry))
-    .filter((value): value is string => Boolean(value));
-
-  return allowed.includes(normalizedRequestOrigin) ? normalizedRequestOrigin : "null";
-}
-
-function parseContentLength(request: Request): number | null {
-  const header = request.headers.get("content-length");
-  if (!header) {
     return null;
   }
-  const parsed = Number.parseInt(header, 10);
-  if (!Number.isFinite(parsed) || Number.isNaN(parsed) || parsed < 0) {
-    return null;
-  }
-  return parsed;
-}
-
-async function readTextWithLimit(request: Request, maxBytes: number): Promise<string> {
-  const declaredLength = parseContentLength(request);
-  if (declaredLength !== null && declaredLength > maxBytes) {
-    throw new RequestBodyError(413, `Request payload is too large. Limit is ${maxBytes} bytes.`);
-  }
-
-  if (!request.body) {
-    return "";
-  }
-
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let totalBytes = 0;
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      if (!value) {
-        continue;
-      }
-      totalBytes += value.byteLength;
-      if (totalBytes > maxBytes) {
-        throw new RequestBodyError(413, `Request payload is too large. Limit is ${maxBytes} bytes.`);
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  const merged = new Uint8Array(totalBytes);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(merged);
+  return parseOriginList(env.ALLOWED_ORIGINS).includes(requestOrigin) ? requestOrigin : null;
 }
 
 export function clientIp(request: Request): string {
+  // On Cloudflare, cf-connecting-ip is set by the edge and cannot be spoofed by
+  // the client. Proxy headers are only trusted for local development.
   const candidate =
     request.headers.get("cf-connecting-ip") ??
     request.headers.get("x-forwarded-for") ??
@@ -133,13 +94,13 @@ export function corsHeaders(request: Request, env: Env): Headers {
   const origin = allowedOrigin(request, env);
   const headers = new Headers({
     "content-type": "application/json; charset=utf-8",
-    "access-control-allow-origin": origin,
-    "access-control-allow-methods": "GET,POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
     "access-control-allow-headers": "content-type,authorization",
     "access-control-max-age": "86400",
     vary: "Origin"
   });
-  if (origin !== "*" && origin !== "null") {
+  if (origin) {
+    headers.set("access-control-allow-origin", origin);
     headers.set("access-control-allow-credentials", "true");
   }
   applySecurityHeaders(headers);
@@ -186,6 +147,52 @@ export function errorJson(
   );
 }
 
+export function formatRetryAfterSeconds(milliseconds: number): string {
+  return String(Math.max(1, Math.ceil(milliseconds / 1000)));
+}
+
+async function readTextWithLimit(request: Request, maxBytes: number): Promise<string> {
+  const declared = Number.parseInt(request.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    throw new RequestBodyError(413, `Request payload is too large. Limit is ${maxBytes} bytes.`);
+  }
+
+  if (!request.body) {
+    return "";
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      if (!value) {
+        continue;
+      }
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        throw new RequestBodyError(413, `Request payload is too large. Limit is ${maxBytes} bytes.`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const merged = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    merged.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(merged);
+}
+
 export async function readJson<T>(request: Request): Promise<T> {
   return readJsonWithLimit(request, DEFAULT_JSON_BODY_MAX_BYTES);
 }
@@ -213,4 +220,40 @@ export async function readJsonWithLimit<T>(request: Request, maxBytes: number): 
   }
 
   return parsed as T;
+}
+
+function describeIssues(error: z.ZodError): string {
+  const first = error.issues[0];
+  if (!first) {
+    return "Invalid request.";
+  }
+  const path = first.path.length > 0 ? `${first.path.join(".")}: ` : "";
+  return `${path}${first.message}`;
+}
+
+/** Validates a size-limited JSON body against a zod schema; 400/413 on failure. */
+export async function readValidatedBody<S extends z.ZodTypeAny>(
+  request: Request,
+  schema: S,
+  maxBytes: number
+): Promise<z.infer<S>> {
+  const raw = await readJsonWithLimit<unknown>(request, maxBytes);
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    throw new HttpError(400, `Invalid request body. ${describeIssues(result.error)}`);
+  }
+  return result.data;
+}
+
+/** Validates URL query parameters against a zod object schema; 400 on failure. */
+export function parseQuery<S extends z.ZodTypeAny>(url: URL, schema: S): z.infer<S> {
+  const raw: Record<string, string> = {};
+  for (const [key, value] of url.searchParams.entries()) {
+    raw[key] = value;
+  }
+  const result = schema.safeParse(raw);
+  if (!result.success) {
+    throw new HttpError(400, `Invalid query. ${describeIssues(result.error)}`);
+  }
+  return result.data;
 }

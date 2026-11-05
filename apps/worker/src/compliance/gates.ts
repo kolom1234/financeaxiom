@@ -5,7 +5,6 @@ import {
   requireLicenseSnapshot,
   shouldQuarantineDataset
 } from "@ofp/policy";
-import { sha256Hex } from "../services/hash";
 
 export function gateA_licenseSnapshot<T extends { license_id?: string | null }>(input: T): T {
   return requireLicenseSnapshot(input);
@@ -19,10 +18,13 @@ export function gateC_eurostatGeo<T extends { geo?: string | null }>(rows: T[]):
   return filterEurostatRowsByGeo(rows);
 }
 
-export async function gateD_ecbRawImmutability(previousRaw: string, nextRaw: string): Promise<boolean> {
-  const prevHash = await sha256Hex(previousRaw);
-  const nextHash = await sha256Hex(nextRaw);
-  return prevHash === nextHash;
+/**
+ * Gate D: raw-locked statistics (ECB) are stored byte-for-byte as published.
+ * Official revisions replace the stored value (previous value kept in
+ * series_observation_revisions); derived values live in separate series.
+ */
+export function gateD_rawValueUnmodified(published: string, stored: string): boolean {
+  return published === stored;
 }
 
 export function gateE_restrictedDataset(input: {

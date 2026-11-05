@@ -47,7 +47,7 @@ describe("EventHubDO security", () => {
     );
 
     expect(response.status).toBe(400);
-    const payload = await response.json();
+    const payload = (await response.json()) as any;
     expect(payload.ok).toBe(false);
   });
 
@@ -79,7 +79,7 @@ describe("EventHubDO security", () => {
       })
     );
     expect(latest.status).toBe(200);
-    const payload = await latest.json();
+    const payload = (await latest.json()) as any;
     expect(payload.ok).toBe(true);
     expect(payload.data.length).toBe(20);
     expect(payload.data[0].item_id).toBe("item-24");

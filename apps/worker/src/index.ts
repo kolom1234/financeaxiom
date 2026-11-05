@@ -1,36 +1,28 @@
-import { handleAlertsGet, handleAlertsPost } from "./routes/alerts";
+import { handleAccountDelete } from "./routes/account";
+import { handleAccountAuditGet, handleAccountAuditPost } from "./routes/accountAudit";
+import { handleAlertsDelete, handleAlertsGet, handleAlertsPost } from "./routes/alerts";
+import { handleAuthLogin, handleAuthLogout, handleAuthPasswordChange, handleAuthPasswordReset, handleAuthSignup } from "./routes/auth";
 import { handleEntity } from "./routes/entity";
 import { handleFeed } from "./routes/feed";
 import { handleFiling } from "./routes/filing";
 import { handleGeo } from "./routes/geo";
 import { handleIndicators } from "./routes/indicators";
 import { handleLegal } from "./routes/legal";
-import { handleAccountAuditGet, handleAccountAuditPost } from "./routes/accountAudit";
-import { handlePushSubscribe, handlePushUnsubscribe } from "./routes/push";
+import { handlePushConfig, handlePushSubscribe, handlePushUnsubscribe } from "./routes/push";
 import { handleSeries } from "./routes/series";
 import { handleStream } from "./routes/stream";
-import { handleAuthLogin, handleAuthLogout, handleAuthPasswordChange, handleAuthPasswordReset, handleAuthSignup } from "./routes/auth";
-import { clientIp, corsHeaders, errorJson } from "./routes/utils";
+import { HttpError, clientIp, corsHeaders, errorJson, formatRetryAfterSeconds } from "./routes/utils";
 import { EventHubDO } from "./do/eventHub";
 import { RateLimiterDO } from "./do/rateLimiter";
 import { SecLimiterDO } from "./do/secLimiter";
-import { handleIngestJob } from "./ingest/queue";
-import { handlePushJob } from "./push/queue";
+import { buildScheduledMessages } from "./ingest/schedule";
+import { handleIngestJob, isIngestMessage } from "./ingest/queue";
+import { handlePushJob, isPushMessage } from "./push/queue";
+import { AuthError } from "./services/auth";
+import { DbUnavailableError } from "./services/db";
+import { describeError, logEvent } from "./services/log";
 import { checkRateLimit, rateLimitKey, type RateLimitConfig } from "./services/rateLimit";
 import type { Env, IngestQueueMessage, PushQueueMessage } from "./types";
-
-const GDELT_NASDAQ_TOP10: ReadonlyArray<{ entity: string; ticker: string }> = [
-  { entity: "Microsoft", ticker: "MSFT" },
-  { entity: "Apple", ticker: "AAPL" },
-  { entity: "NVIDIA", ticker: "NVDA" },
-  { entity: "Amazon", ticker: "AMZN" },
-  { entity: "Alphabet", ticker: "GOOGL" },
-  { entity: "Meta", ticker: "META" },
-  { entity: "Broadcom", ticker: "AVGO" },
-  { entity: "Tesla", ticker: "TSLA" },
-  { entity: "Costco", ticker: "COST" },
-  { entity: "Netflix", ticker: "NFLX" }
-];
 
 type PublicReadScope = "feed" | "entity" | "series" | "filing" | "indicators" | "legal" | "geo";
 
@@ -44,12 +36,103 @@ const PUBLIC_READ_RATE_LIMITS: Record<PublicReadScope, RateLimitConfig> = {
   geo: { limit: 300, windowMs: 60 * 1000 }
 };
 
-function routePath(pathname: string, base: string): string | null {
+/**
+ * Edge cache TTL (seconds) for successful public reads. Cache hits are served
+ * from the colo's Cache API without touching the rate-limiter Durable Object,
+ * KV or the database. `geo` is per-visitor and never cached.
+ */
+const PUBLIC_EDGE_CACHE_TTL: Partial<Record<PublicReadScope, number>> = {
+  feed: 30,
+  entity: 60,
+  series: 300,
+  filing: 300,
+  indicators: 120,
+  legal: 300
+};
+
+interface ExecutionContextLike {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
+function edgeCache(): Cache | null {
+  const storage = (globalThis as { caches?: CacheStorage & { default?: Cache } }).caches;
+  return storage?.default ?? null;
+}
+
+/** Cache key: path + sorted query, independent of headers such as Origin. */
+function cacheKeyFor(url: URL): Request {
+  const key = new URL(url.toString());
+  key.search = "";
+  const params = [...url.searchParams.entries()].sort(([left], [right]) => left.localeCompare(right));
+  for (const [name, value] of params) {
+    key.searchParams.append(name, value);
+  }
+  return new Request(key.toString(), { method: "GET" });
+}
+
+function rebuildWithCors(request: Request, env: Env, cached: Response, ttl: number, cacheStatus: "HIT" | "MISS"): Response {
+  const headers = corsHeaders(request, env);
+  headers.set("cache-control", `public, max-age=${Math.min(ttl, 60)}`);
+  headers.set("x-edge-cache", cacheStatus);
+  return new Response(cached.body, { status: cached.status, headers });
+}
+
+async function enforcePublicReadLimit(request: Request, env: Env, scope: PublicReadScope): Promise<void> {
+  if (!env.RATE_LIMITER_DO) {
+    throw new HttpError(503, "Rate limiter is not configured.");
+  }
+  const key = rateLimitKey("public_read", clientIp(request), scope);
+  const limit = await checkRateLimit(env.OFP_KV, key, PUBLIC_READ_RATE_LIMITS[scope], Date.now(), env.RATE_LIMITER_DO);
+  if (!limit.allowed) {
+    const seconds = formatRetryAfterSeconds(limit.retryAfterMs);
+    throw new HttpError(429, `Too many ${scope} requests from this network. Retry in ${seconds} seconds.`, { "retry-after": seconds });
+  }
+}
+
+async function publicRead(
+  request: Request,
+  env: Env,
+  ctx: ExecutionContextLike | undefined,
+  scope: PublicReadScope,
+  handler: () => Promise<Response>
+): Promise<Response> {
+  const ttl = PUBLIC_EDGE_CACHE_TTL[scope];
+  const cache = ttl ? edgeCache() : null;
+  const cacheKey = cache ? cacheKeyFor(new URL(request.url)) : null;
+
+  if (cache && cacheKey && ttl) {
+    const hit = await cache.match(cacheKey);
+    if (hit) {
+      return rebuildWithCors(request, env, hit, ttl, "HIT");
+    }
+  }
+
+  await enforcePublicReadLimit(request, env, scope);
+  const response = await handler();
+
+  if (cache && cacheKey && ttl && response.status === 200) {
+    const body = await response.arrayBuffer();
+    const stored = new Response(body, {
+      status: 200,
+      headers: { "content-type": "application/json; charset=utf-8", "cache-control": `public, max-age=${ttl}` }
+    });
+    const put = cache.put(cacheKey, stored).catch((error) => logEvent("warn", "edge_cache_put_failed", describeError(error)));
+    if (ctx) {
+      ctx.waitUntil(put);
+    } else {
+      await put;
+    }
+    return rebuildWithCors(request, env, new Response(body, { status: 200 }), ttl, "MISS");
+  }
+  return response;
+}
+
+function routeParam(pathname: string, base: string): string | null {
   if (!pathname.startsWith(base)) {
     return null;
   }
   const sliced = pathname.slice(base.length);
-  if (sliced.length === 0) {
+  if (sliced.length === 0 || sliced.includes("/")) {
     return null;
   }
   try {
@@ -59,231 +142,163 @@ function routePath(pathname: string, base: string): string | null {
   }
 }
 
-function formatRateLimitSeconds(milliseconds: number): string {
-  return String(Math.max(1, Math.ceil(milliseconds / 1000)));
-}
+async function routeApi(request: Request, env: Env, ctx: ExecutionContextLike | undefined): Promise<Response> {
+  const { pathname } = new URL(request.url);
+  const method = request.method;
 
-async function enforcePublicReadLimit(
-  request: Request,
-  env: Env,
-  scope: PublicReadScope
-): Promise<Response | null> {
-  if (!env.RATE_LIMITER_DO) {
-    return errorJson(request, env, 503, "Rate limiter is not configured.");
-  }
-
-  const key = rateLimitKey("public_read", clientIp(request), scope);
-  const limit = await checkRateLimit(env.OFP_KV, key, PUBLIC_READ_RATE_LIMITS[scope], Date.now(), env.RATE_LIMITER_DO);
-  if (limit.allowed) {
-    return null;
-  }
-
-  return errorJson(
-    request,
-    env,
-    429,
-    `Too many ${scope} requests from this network. Retry in ${formatRateLimitSeconds(limit.retryAfterMs)} seconds.`,
-    { "retry-after": formatRateLimitSeconds(limit.retryAfterMs) }
-  );
-}
-
-async function handleApi(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url);
-  const pathname = url.pathname;
-
-  if (request.method === "OPTIONS") {
+  if (method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders(request, env) });
   }
 
-  if (request.method === "GET" && pathname === "/api/feed") {
-    const limited = await enforcePublicReadLimit(request, env, "feed");
-    if (limited) {
-      return limited;
+  if (method === "GET") {
+    switch (pathname) {
+      case "/api/feed":
+        return publicRead(request, env, ctx, "feed", () => handleFeed(request, env));
+      case "/api/indicators/key":
+        return publicRead(request, env, ctx, "indicators", () => handleIndicators(request, env));
+      case "/api/legal":
+        return publicRead(request, env, ctx, "legal", () => handleLegal(request, env));
+      case "/api/geo":
+        return publicRead(request, env, ctx, "geo", () => handleGeo(request, env));
+      case "/api/account/audit":
+        return handleAccountAuditGet(request, env);
+      case "/api/stream":
+        return handleStream(request, env);
+      case "/api/alerts/rules":
+        return handleAlertsGet(request, env);
+      case "/api/push/config":
+        return handlePushConfig(request, env);
     }
-    return handleFeed(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/indicators/key") {
-    const limited = await enforcePublicReadLimit(request, env, "indicators");
-    if (limited) {
-      return limited;
+    const entitySlug = routeParam(pathname, "/api/entity/");
+    if (entitySlug !== null) {
+      return publicRead(request, env, ctx, "entity", () => handleEntity(request, env, entitySlug));
     }
-    return handleIndicators(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/legal") {
-    const limited = await enforcePublicReadLimit(request, env, "legal");
-    if (limited) {
-      return limited;
+    const seriesId = routeParam(pathname, "/api/series/");
+    if (seriesId !== null) {
+      return publicRead(request, env, ctx, "series", () => handleSeries(request, env, seriesId));
     }
-    return handleLegal(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/account/audit") {
-    return handleAccountAuditGet(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/account/audit") {
-    return handleAccountAuditPost(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/geo") {
-    const limited = await enforcePublicReadLimit(request, env, "geo");
-    if (limited) {
-      return limited;
+    const accession = routeParam(pathname, "/api/f/");
+    if (accession !== null) {
+      return publicRead(request, env, ctx, "filing", () => handleFiling(request, env, accession));
     }
-    return handleGeo(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/stream") {
-    return handleStream(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/auth/login") {
-    return handleAuthLogin(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/auth/signup") {
-    return handleAuthSignup(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/auth/password-reset") {
-    return handleAuthPasswordReset(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/auth/password-change") {
-    return handleAuthPasswordChange(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/auth/logout") {
-    return handleAuthLogout(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/push/subscribe") {
-    return handlePushSubscribe(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/push/unsubscribe") {
-    return handlePushUnsubscribe(request, env);
-  }
-  if (request.method === "GET" && pathname === "/api/alerts/rules") {
-    return handleAlertsGet(request, env);
-  }
-  if (request.method === "POST" && pathname === "/api/alerts/rules") {
-    return handleAlertsPost(request, env);
   }
 
-  const entitySlug = routePath(pathname, "/api/entity/");
-  if (request.method === "GET" && entitySlug) {
-    const limited = await enforcePublicReadLimit(request, env, "entity");
-    if (limited) {
-      return limited;
+  if (method === "POST") {
+    switch (pathname) {
+      case "/api/auth/login":
+        return handleAuthLogin(request, env);
+      case "/api/auth/signup":
+        return handleAuthSignup(request, env);
+      case "/api/auth/password-reset":
+        return handleAuthPasswordReset(request, env);
+      case "/api/auth/password-change":
+        return handleAuthPasswordChange(request, env);
+      case "/api/auth/logout":
+        return handleAuthLogout(request, env);
+      case "/api/push/subscribe":
+        return handlePushSubscribe(request, env);
+      case "/api/push/unsubscribe":
+        return handlePushUnsubscribe(request, env);
+      case "/api/alerts/rules":
+        return handleAlertsPost(request, env);
+      case "/api/account/audit":
+        return handleAccountAuditPost(request, env);
+      case "/api/account/delete":
+        return handleAccountDelete(request, env);
     }
-    return handleEntity(request, env, entitySlug);
   }
 
-  const seriesId = routePath(pathname, "/api/series/");
-  if (request.method === "GET" && seriesId) {
-    const limited = await enforcePublicReadLimit(request, env, "series");
-    if (limited) {
-      return limited;
+  if (method === "DELETE") {
+    const ruleId = routeParam(pathname, "/api/alerts/rules/");
+    if (ruleId !== null) {
+      return handleAlertsDelete(request, env, ruleId);
     }
-    return handleSeries(request, env, seriesId);
   }
 
-  const accession = routePath(pathname, "/api/f/");
-  if (request.method === "GET" && accession) {
-    const limited = await enforcePublicReadLimit(request, env, "filing");
-    if (limited) {
-      return limited;
-    }
-    return handleFiling(request, env, accession);
-  }
-
-  return errorJson(request, env, 404, "Not found.");
+  throw new HttpError(404, "Not found.");
 }
 
-function isIngestMessage(input: unknown): input is IngestQueueMessage {
-  if (!input || typeof input !== "object") {
-    return false;
+/** Single place that turns exceptions into responses; nothing escapes without CORS headers. */
+export async function handleApi(request: Request, env: Env, ctx?: ExecutionContextLike): Promise<Response> {
+  const requestId = request.headers.get("cf-ray") ?? crypto.randomUUID();
+  try {
+    return await routeApi(request, env, ctx);
+  } catch (error) {
+    if (error instanceof HttpError) {
+      return errorJson(request, env, error.status, error.message, error.headers);
+    }
+    if (error instanceof AuthError) {
+      return errorJson(request, env, 401, error.message);
+    }
+    const path = new URL(request.url).pathname;
+    if (error instanceof DbUnavailableError) {
+      logEvent("error", "db_unavailable", { request_id: requestId, path, ...describeError(error) });
+      return errorJson(request, env, 503, "Persistent store is temporarily unavailable.", { "retry-after": "30", "x-request-id": requestId });
+    }
+    logEvent("error", "unhandled_request_error", { request_id: requestId, path, ...describeError(error) });
+    return errorJson(request, env, 500, "Internal server error.", { "x-request-id": requestId });
   }
-  const job = (input as { job?: unknown }).job;
-  return (
-    job === "INGEST_GDELT" ||
-    job === "INGEST_SEC" ||
-    job === "INGEST_MACRO" ||
-    job === "RECOMPUTE_DERIVED"
-  );
 }
 
-function isPushMessage(input: unknown): input is PushQueueMessage {
-  if (!input || typeof input !== "object") {
-    return false;
-  }
-  return (input as { job?: unknown }).job === "PUSH_FANOUT_BREAKING";
-}
+const MAX_RETRY_DELAY_SECONDS = 15 * 60;
 
-async function handleQueueMessage(message: MessageBatch<IngestQueueMessage | PushQueueMessage>, env: Env): Promise<void> {
-  for (const entry of message.messages) {
+async function handleQueueBatch(batch: MessageBatch<IngestQueueMessage | PushQueueMessage>, env: Env): Promise<void> {
+  for (const message of batch.messages) {
+    const body = message.body as unknown;
+    const job = (body as { job?: unknown } | null)?.job;
     try {
-      if (isIngestMessage(entry.body)) {
-        await handleIngestJob(entry.body, env);
-      } else if (isPushMessage(entry.body)) {
-        await handlePushJob(entry.body, env);
+      if (isIngestMessage(body)) {
+        await handleIngestJob(body, env);
+      } else if (isPushMessage(body)) {
+        await handlePushJob(body, env);
       } else {
-        throw new Error("Unsupported queue message.");
+        // Malformed messages can never succeed: drop them instead of retrying.
+        logEvent("error", "queue_message_unsupported", { queue: batch.queue, job: String(job) });
+        message.ack();
+        continue;
       }
-      entry.ack();
-    } catch {
-      entry.retry();
+      message.ack();
+    } catch (error) {
+      const attempts = (message as { attempts?: number }).attempts ?? 1;
+      const delaySeconds = Math.min(MAX_RETRY_DELAY_SECONDS, 30 * 2 ** Math.max(0, attempts - 1));
+      logEvent("error", "queue_job_failed", {
+        queue: batch.queue,
+        job: String(job),
+        run_id: (body as { run_id?: unknown } | null)?.run_id,
+        attempts,
+        retry_in_seconds: delaySeconds,
+        ...describeError(error)
+      });
+      message.retry({ delaySeconds });
     }
   }
 }
 
 async function handleScheduled(controller: ScheduledController, env: Env): Promise<void> {
-  const runId = crypto.randomUUID();
-  const cron = controller.cron;
-
-  const runGdelt = !cron || cron === "*/5 * * * *";
-  const runSec = !cron || cron === "*/2 * * * *";
-  const runMacro = !cron || cron === "0 */3 * * *";
-
-  if (env.INGEST_QUEUE) {
-    if (runGdelt) {
-      for (const target of GDELT_NASDAQ_TOP10) {
-        await env.INGEST_QUEUE.send({
-          job: "INGEST_GDELT",
-          run_id: runId,
-          params: {
-            entity: target.entity,
-            ticker: target.ticker
-          }
-        });
-      }
-    }
-    if (runSec) {
-      await env.INGEST_QUEUE.send({
-        job: "INGEST_SEC",
-        run_id: runId,
-        params: { cik: "1045810" }
-      });
-    }
-    if (runMacro) {
-      await env.INGEST_QUEUE.send({
-        job: "INGEST_MACRO",
-        run_id: runId,
-        params: {}
-      });
-      await env.INGEST_QUEUE.send({
-        job: "RECOMPUTE_DERIVED",
-        run_id: runId,
-        params: {}
-      });
+  const { ingest, push } = buildScheduledMessages(controller.cron, crypto.randomUUID());
+  if (ingest.length > 0) {
+    if (!env.INGEST_QUEUE) {
+      logEvent("error", "scheduled_queue_missing", { queue: "INGEST_QUEUE", cron: controller.cron });
+    } else {
+      await env.INGEST_QUEUE.sendBatch(ingest.map((body) => ({ body })));
     }
   }
-
-  if (env.PUSH_QUEUE && runGdelt) {
-    await env.PUSH_QUEUE.send({
-      job: "PUSH_FANOUT_BREAKING",
-      run_id: runId,
-      params: { limit: 25 }
-    });
+  if (push.length > 0) {
+    if (!env.PUSH_QUEUE) {
+      logEvent("error", "scheduled_queue_missing", { queue: "PUSH_QUEUE", cron: controller.cron });
+    } else {
+      await env.PUSH_QUEUE.sendBatch(push.map((body) => ({ body })));
+    }
   }
+  logEvent("info", "scheduled_dispatch", { cron: controller.cron, ingest_jobs: ingest.length, push_jobs: push.length });
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    return handleApi(request, env);
+  async fetch(request: Request, env: Env, ctx?: ExecutionContextLike): Promise<Response> {
+    return handleApi(request, env, ctx);
   },
   async queue(batch: MessageBatch<IngestQueueMessage | PushQueueMessage>, env: Env): Promise<void> {
-    await handleQueueMessage(batch, env);
+    await handleQueueBatch(batch, env);
   },
   async scheduled(controller: ScheduledController, env: Env): Promise<void> {
     await handleScheduled(controller, env);

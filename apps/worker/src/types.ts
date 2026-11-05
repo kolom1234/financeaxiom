@@ -16,6 +16,8 @@ export interface Env {
   DATABASE_URL?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  /** Optional secret. Enables deletion of the Supabase Auth user in /api/account/delete. */
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   SUPABASE_JWKS_URL?: string;
   SUPABASE_JWT_AUDIENCE?: string;
   SUPABASE_JWT_ISSUER?: string;
@@ -23,11 +25,17 @@ export interface Env {
   ALLOWED_ORIGINS?: string;
   AUTH_ALLOWED_REDIRECT_ORIGINS?: string;
   ALLOW_MEMORY_READ_FALLBACK?: string;
-  ADS_PROVIDER?: string;
-  CMP_PROVIDER?: string;
-  GDELT_MODE?: string;
   BEA_API_KEY?: string;
   EIA_API_KEY?: string;
+  /** Optional BLS registration key (500 queries/day instead of 25). */
+  BLS_API_KEY?: string;
+  /** VAPID key pair (base64url, raw P-256) and contact for Web Push (RFC 8292). */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  VAPID_SUBJECT?: string;
+  /** Retention windows in days (defaults: 90). */
+  GDELT_RETENTION_DAYS?: string;
+  NOTIFICATION_RETENTION_DAYS?: string;
   TEST_AUTH_BYPASS?: string;
 }
 
@@ -63,10 +71,20 @@ export interface InternalContentItem {
 
 export interface KeyIndicatorCard {
   series_id: string;
+  /** Stable public identifier usable in /api/series/:id. */
+  series_code: string;
   title: string;
+  units: string;
+  is_derived: boolean;
   latest_value: number;
+  /** ISO date (YYYY-MM-DD) of the latest observation. */
   period: string;
-  yoy: number;
+  /** % change vs. the observation one year earlier; null for series already expressed in %. */
+  yoy: number | null;
+  /** Latest minus previous observation, in `change_unit`. */
+  change: number | null;
+  /** "pp" (percentage points) for % series, otherwise the series units. */
+  change_unit: string;
   sparkline: number[];
   source: SourcePayload;
   license: LicensePayload;
@@ -104,11 +122,13 @@ export interface FilingRecord {
 export interface PushSubscriptionRecord {
   subscription_id: string;
   user_id: string;
-  endpoint_enc: string;
   endpoint_hash: string;
+  endpoint_enc: string;
+  endpoint_iv: string;
   p256dh_enc: string;
+  p256dh_iv: string;
   auth_enc: string;
-  enc_iv: string;
+  auth_iv: string;
   filters: Record<string, unknown>;
   created_at: string;
   last_seen_at?: string;
@@ -133,8 +153,17 @@ export interface NotificationEventRecord {
   status: "queued" | "sent" | "failed";
 }
 
+export type MacroSource = "BLS" | "EIA" | "ECB" | "FRB" | "BEA" | "EUROSTAT" | "OECD" | "WORLD_BANK";
+
 export interface IngestQueueMessage {
-  job: "INGEST_GDELT" | "INGEST_SEC" | "INGEST_MACRO" | "RECOMPUTE_DERIVED";
+  /**
+   * INGEST_GDELT: all tracked companies, request-paced, in one message.
+   * INGEST_SEC: params.cik. INGEST_MACRO: params.source (one source per message).
+   * MAINTENANCE_RETENTION: deletes expired index items / notification events.
+   * RECOMPUTE_DERIVED is retired (derived series are computed during ingest);
+   * messages still in flight are acknowledged as no-ops.
+   */
+  job: "INGEST_GDELT" | "INGEST_SEC" | "INGEST_MACRO" | "MAINTENANCE_RETENTION" | "RECOMPUTE_DERIVED";
   run_id: string;
   params: Record<string, unknown>;
 }

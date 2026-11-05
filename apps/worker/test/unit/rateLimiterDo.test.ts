@@ -38,7 +38,7 @@ describe("RateLimiterDO", () => {
       })
     );
     expect(first.status).toBe(200);
-    expect((await first.json()).allowed).toBe(true);
+    expect((await first.json() as any).allowed).toBe(true);
 
     const second = await limiter.fetch(
       new Request("https://internal/check", {
@@ -48,7 +48,7 @@ describe("RateLimiterDO", () => {
       })
     );
     expect(second.status).toBe(200);
-    expect((await second.json()).allowed).toBe(true);
+    expect((await second.json() as any).allowed).toBe(true);
 
     const third = await limiter.fetch(
       new Request("https://internal/check", {
@@ -58,7 +58,7 @@ describe("RateLimiterDO", () => {
       })
     );
     expect(third.status).toBe(200);
-    const thirdPayload = await third.json();
+    const thirdPayload = (await third.json()) as any;
     expect(thirdPayload.allowed).toBe(false);
     expect(thirdPayload.retryAfterMs).toBeGreaterThan(0);
   });
@@ -89,7 +89,7 @@ describe("RateLimiterDO", () => {
         })
       })
     );
-    expect((await blocked.json()).allowed).toBe(false);
+    expect((await blocked.json() as any).allowed).toBe(false);
 
     const reopened = await limiter.fetch(
       new Request("https://internal/check", {
@@ -102,7 +102,7 @@ describe("RateLimiterDO", () => {
         })
       })
     );
-    expect((await reopened.json()).allowed).toBe(true);
+    expect((await reopened.json() as any).allowed).toBe(true);
   });
 });
 

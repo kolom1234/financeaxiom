@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { transformGdeltRecord } from "../../src/ingest/gdelt";
-import { applyEurostatFilter, validateEcbRawUnchanged } from "../../src/ingest/macro";
+import { applyEurostatFilter, assertRawValueUnmodified } from "../../src/ingest/macro";
+import { parseEcbCsv } from "../../src/ingest/sources/ecb";
 import { SlidingWindowPerSecondLimiter } from "../../src/services/rateLimiter";
 import { gateF_fredHardBlock } from "../../src/compliance/gates";
 import { ALLOWED_INGEST_JOBS } from "../../src/ingest/types";
@@ -9,7 +10,6 @@ describe("SPEC compliance tests", () => {
   it("gdelt_metadata_only", () => {
     const transformed = transformGdeltRecord({
       entity: "NVIDIA",
-      window: "6h",
       external_url: "https://api.gdeltproject.org/api/v2/doc/doc?query=NVIDIA&mode=artlist&format=html&sort=datedesc&maxrecords=5"
     });
     expect(transformed.headline_generated.length).toBeGreaterThan(0);
@@ -30,9 +30,13 @@ describe("SPEC compliance tests", () => {
     ]);
   });
 
-  it("ecb_raw_immutable", async () => {
-    await expect(validateEcbRawUnchanged("121.8", "121.8")).resolves.toBeUndefined();
-    await expect(validateEcbRawUnchanged("121.8", "121.9")).rejects.toThrow(/changed unexpectedly/);
+  it("ecb_raw_unmodified", () => {
+    // Raw ECB values are kept byte-for-byte as published (no re-formatting such as "121.80" -> "121.8").
+    const csv = "KEY,FREQ,REF_AREA,ADJUSTMENT,ICP_ITEM,STS_INSTITUTION,ICP_SUFFIX,TIME_PERIOD,OBS_VALUE\nICP.M,M,U2,N,000000,4,INX,2026-01,121.80";
+    const [point] = parseEcbCsv(csv);
+    expect(point?.valueRaw).toBe("121.80");
+    expect(() => assertRawValueUnmodified("121.80", point!.valueRaw)).not.toThrow();
+    expect(() => assertRawValueUnmodified("121.80", "121.8")).toThrow(/modified/);
   });
 
   it("sec_rate_limit", () => {

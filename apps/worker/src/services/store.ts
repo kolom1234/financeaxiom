@@ -16,8 +16,32 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function uuidLike(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+function newId(): string {
+  return crypto.randomUUID();
+}
+
+type SampleIndicator = Omit<KeyIndicatorCard, "series_code" | "yoy" | "change" | "change_unit" | "is_derived"> & {
+  is_derived?: boolean;
+  /** Value one year before `period`, used to derive `yoy` for level series. */
+  year_ago_value?: number;
+};
+
+/** Derives change/yoy exactly like the SQL path (see queryIndicators). */
+function toIndicatorCard(sample: SampleIndicator): KeyIndicatorCard {
+  const { year_ago_value: yearAgo, ...rest } = sample;
+  const isPercent = sample.units.trim() === "%";
+  const previous = sample.sparkline.length > 1 ? sample.sparkline[sample.sparkline.length - 2] : undefined;
+  return {
+    ...rest,
+    series_code: sample.series_id,
+    is_derived: sample.is_derived ?? false,
+    change: previous === undefined ? null : Number((sample.latest_value - previous).toFixed(4)),
+    change_unit: isPercent ? "pp" : sample.units,
+    yoy:
+      !isPercent && yearAgo !== undefined && Math.abs(yearAgo) > 0.000001
+        ? Number((((sample.latest_value - yearAgo) / Math.abs(yearAgo)) * 100).toFixed(2))
+        : null
+  };
 }
 
 const MAX_FALLBACK_CONTENT_ITEMS = 500;
@@ -32,6 +56,11 @@ function trimToMax<T>(list: T[], max: number): void {
   list.splice(0, list.length - max);
 }
 
+/**
+ * In-memory SAMPLE data for local development and tests only.
+ * Never served in production: reads use it only when no database is configured
+ * and ALLOW_MEMORY_READ_FALLBACK=1, writes only when TEST_AUTH_BYPASS=1.
+ */
 export class MemoryStore {
   private static singleton?: MemoryStore;
 
@@ -231,13 +260,14 @@ export class MemoryStore {
       }
     ];
 
-    this.keyIndicators = [
+    const sampleIndicators: SampleIndicator[] = [
       {
         series_id: "US_CPI_YOY",
+        units: "%",
+        is_derived: true,
         title: "US CPI YoY",
         latest_value: 2.7,
-        period: "2026-01",
-        yoy: 2.7,
+        period: "2026-01-01",
         sparkline: [2.5, 2.4, 2.6, 2.8, 2.7, 2.7],
         source: { name: "BLS", policy_url: "https://www.bls.gov/developers/" },
         license: {
@@ -249,10 +279,10 @@ export class MemoryStore {
       },
       {
         series_id: "US_UNEMPLOYMENT_RATE",
+        units: "%",
         title: "US Unemployment Rate",
         latest_value: 3.9,
-        period: "2026-01",
-        yoy: -0.2,
+        period: "2026-01-01",
         sparkline: [4.1, 4.0, 4.0, 3.9, 3.9, 3.9],
         source: { name: "BLS", policy_url: "https://www.bls.gov/developers/" },
         license: {
@@ -264,10 +294,11 @@ export class MemoryStore {
       },
       {
         series_id: "US_NONFARM_PAYROLLS",
+        units: "thousand persons",
+        year_ago_value: 157900,
         title: "US Nonfarm Payrolls",
         latest_value: 159820,
-        period: "2026-01",
-        yoy: 1.2,
+        period: "2026-01-01",
         sparkline: [158920, 159040, 159180, 159410, 159620, 159820],
         source: { name: "BLS", policy_url: "https://www.bls.gov/developers/" },
         license: {
@@ -279,10 +310,11 @@ export class MemoryStore {
       },
       {
         series_id: "US_AVG_HOURLY_EARNINGS",
+        units: "USD/hour",
+        year_ago_value: 34.4,
         title: "US Avg Hourly Earnings",
         latest_value: 35.5,
-        period: "2026-01",
-        yoy: 3.2,
+        period: "2026-01-01",
         sparkline: [34.6, 34.8, 35, 35.1, 35.3, 35.5],
         source: { name: "BLS", policy_url: "https://www.bls.gov/developers/" },
         license: {
@@ -294,10 +326,10 @@ export class MemoryStore {
       },
       {
         series_id: "US_GDP_QOQ",
+        units: "%",
         title: "US GDP QoQ",
         latest_value: 0.6,
-        period: "2025-Q4",
-        yoy: 2.1,
+        period: "2025-10-01",
         sparkline: [0.2, 0.3, 0.5, 0.7, 0.6, 0.6],
         source: { name: "BEA", policy_url: "https://apps.bea.gov/API/docs/index.htm" },
         license: {
@@ -309,10 +341,11 @@ export class MemoryStore {
       },
       {
         series_id: "US_EIA_CRUDE_STOCKS",
+        units: "MBBL",
+        year_ago_value: 425.0,
         title: "US Crude Stocks",
         latest_value: 430.5,
-        period: "2026-W06",
-        yoy: 1.3,
+        period: "2026-02-06",
         sparkline: [427, 428, 426, 429, 431, 430.5],
         source: { name: "EIA", policy_url: "https://www.eia.gov/opendata/" },
         license: {
@@ -324,10 +357,10 @@ export class MemoryStore {
       },
       {
         series_id: "US_TREASURY_10Y",
+        units: "%",
         title: "US 10Y Treasury Yield",
         latest_value: 4.1,
-        period: "2026-02",
-        yoy: -0.4,
+        period: "2026-02-13",
         sparkline: [4.6, 4.5, 4.4, 4.3, 4.2, 4.1],
         source: {
           name: "Federal Reserve Board",
@@ -342,10 +375,11 @@ export class MemoryStore {
       },
       {
         series_id: "EU_HICP_YOY",
+        units: "%",
+        is_derived: true,
         title: "EU HICP YoY",
         latest_value: 2.3,
-        period: "2026-01",
-        yoy: 2.3,
+        period: "2026-01-01",
         sparkline: [2.8, 2.7, 2.6, 2.5, 2.4, 2.3],
         source: {
           name: "ECB",
@@ -359,6 +393,7 @@ export class MemoryStore {
         }
       }
     ];
+    this.keyIndicators = sampleIndicators.map(toIndicatorCard);
 
     this.series = [
       {
@@ -520,16 +555,18 @@ export class MemoryStore {
 
     if (existing) {
       existing.endpoint_enc = record.endpoint_enc;
+      existing.endpoint_iv = record.endpoint_iv;
       existing.p256dh_enc = record.p256dh_enc;
+      existing.p256dh_iv = record.p256dh_iv;
       existing.auth_enc = record.auth_enc;
-      existing.enc_iv = record.enc_iv;
+      existing.auth_iv = record.auth_iv;
       existing.filters = record.filters;
       existing.last_seen_at = nowIso();
       return existing;
     }
 
     const created: PushSubscriptionRecord = {
-      subscription_id: uuidLike("sub"),
+      subscription_id: newId(),
       created_at: nowIso(),
       ...record
     };
@@ -548,6 +585,13 @@ export class MemoryStore {
     return filtered.length !== originalLength;
   }
 
+  removePushSubscriptionById(subscriptionId: string): void {
+    const index = this.pushSubscriptions.findIndex((subscription) => subscription.subscription_id === subscriptionId);
+    if (index >= 0) {
+      this.pushSubscriptions.splice(index, 1);
+    }
+  }
+
   listPushSubscriptions(userId?: string): PushSubscriptionRecord[] {
     if (!userId) {
       return [...this.pushSubscriptions];
@@ -563,25 +607,31 @@ export class MemoryStore {
     return this.alertRules.filter((rule) => rule.user_id === userId);
   }
 
+  /** Mirrors postgres.saveAlertRule semantics (not_found / limit_reached). */
   saveAlertRule(
     userId: string,
-    input: Pick<AlertRuleRecord, "rule_type" | "rule" | "enabled"> & { rule_id?: string }
-  ): AlertRuleRecord {
+    input: Pick<AlertRuleRecord, "rule_type" | "rule" | "enabled"> & { rule_id?: string },
+    maxRulesPerUser = Number.POSITIVE_INFINITY
+  ): { status: "saved"; rule: AlertRuleRecord } | { status: "not_found" } | { status: "limit_reached" } {
     const now = nowIso();
     if (input.rule_id) {
       const existing = this.alertRules.find((rule) => rule.rule_id === input.rule_id && rule.user_id === userId);
       if (!existing) {
-        throw new Error("Rule not found for user.");
+        return { status: "not_found" };
       }
       existing.enabled = input.enabled;
       existing.rule_type = input.rule_type;
       existing.rule = input.rule;
       existing.updated_at = now;
-      return existing;
+      return { status: "saved", rule: existing };
+    }
+
+    if (this.listAlertRules(userId).length >= maxRulesPerUser) {
+      return { status: "limit_reached" };
     }
 
     const created: AlertRuleRecord = {
-      rule_id: uuidLike("rule"),
+      rule_id: newId(),
       user_id: userId,
       enabled: input.enabled,
       rule_type: input.rule_type,
@@ -591,7 +641,33 @@ export class MemoryStore {
     };
     this.alertRules.push(created);
     trimToMax(this.alertRules, MAX_FALLBACK_ALERT_RULES);
-    return created;
+    return { status: "saved", rule: created };
+  }
+
+  deleteAlertRule(userId: string, ruleId: string): boolean {
+    const index = this.alertRules.findIndex((rule) => rule.rule_id === ruleId && rule.user_id === userId);
+    if (index < 0) {
+      return false;
+    }
+    this.alertRules.splice(index, 1);
+    return true;
+  }
+
+  deleteUserData(userId: string): { push_subscriptions: number; alert_rules: number; notification_events: number } {
+    const counts = {
+      push_subscriptions: this.pushSubscriptions.filter((item) => item.user_id === userId).length,
+      alert_rules: this.alertRules.filter((item) => item.user_id === userId).length,
+      notification_events: this.notificationEvents.filter((item) => item.user_id === userId).length
+    };
+    const keep = <T extends { user_id: string }>(list: T[]): void => {
+      const remaining = list.filter((item) => item.user_id !== userId);
+      list.length = 0;
+      list.push(...remaining);
+    };
+    keep(this.pushSubscriptions);
+    keep(this.alertRules);
+    keep(this.notificationEvents);
+    return counts;
   }
 
   registerNotificationEvent(userId: string, itemId: string, payload: Record<string, unknown>): NotificationEventRecord | null {
@@ -610,7 +686,7 @@ export class MemoryStore {
     }
 
     const created: NotificationEventRecord = {
-      notification_id: uuidLike("notif"),
+      notification_id: newId(),
       user_id: userId,
       item_id: itemId,
       created_at: nowIso(),

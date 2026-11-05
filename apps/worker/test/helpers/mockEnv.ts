@@ -1,30 +1,38 @@
 import type { Env } from "../../src/types";
 
-class MemoryKV implements KVNamespace {
-  private store = new Map<string, string>();
+/** In-memory KV with the subset of the API the worker uses (get/put/delete/list with prefix + metadata). */
+export class MemoryKV {
+  private store = new Map<string, { value: string; metadata?: unknown }>();
+  putCount = 0;
 
   async get(key: string): Promise<string | null> {
-    return this.store.get(key) ?? null;
+    return this.store.get(key)?.value ?? null;
   }
 
-  async getWithMetadata(): Promise<KVNamespaceGetWithMetadataResult<string>> {
-    throw new Error("Not implemented in tests.");
-  }
-
-  async put(key: string, value: string): Promise<void> {
-    this.store.set(key, value);
-  }
-
-  async list(): Promise<KVNamespaceListResult<null>> {
-    return {
-      keys: [],
-      list_complete: true,
-      cacheStatus: null
-    };
+  async put(key: string, value: string, options?: { expirationTtl?: number; metadata?: unknown }): Promise<void> {
+    this.putCount += 1;
+    this.store.set(key, { value, metadata: options?.metadata });
   }
 
   async delete(key: string): Promise<void> {
     this.store.delete(key);
+  }
+
+  async list<M = unknown>(options: { prefix?: string; limit?: number; cursor?: string } = {}): Promise<{
+    keys: Array<{ name: string; metadata?: M }>;
+    list_complete: boolean;
+    cursor?: string;
+  }> {
+    const names = [...this.store.keys()].filter((name) => name.startsWith(options.prefix ?? "")).sort();
+    const start = options.cursor ? Number(options.cursor) : 0;
+    const limit = options.limit ?? 1000;
+    const page = names.slice(start, start + limit);
+    const complete = start + limit >= names.length;
+    return {
+      keys: page.map((name) => ({ name, metadata: this.store.get(name)?.metadata as M })),
+      list_complete: complete,
+      ...(complete ? {} : { cursor: String(start + limit) })
+    };
   }
 }
 
@@ -37,29 +45,21 @@ function computeWindowStart(nowMs: number, windowMs: number): number {
   return nowMs - (nowMs % windowMs);
 }
 
-function createMockRateLimiterNamespace(): DurableObjectNamespace {
+function createMockRateLimiterNamespace(): NonNullable<Env["RATE_LIMITER_DO"]> {
   const stateByKey = new Map<string, MockRateLimitState>();
 
   return {
-    idFromName(name: string): DurableObjectId {
+    idFromName(name: string) {
       return {
         toString(): string {
           return name;
         }
-      } as DurableObjectId;
+      };
     },
-    newUniqueId(): DurableObjectId {
-      const value = crypto.randomUUID();
-      return {
-        toString(): string {
-          return value;
-        }
-      } as DurableObjectId;
-    },
-    get(id: DurableObjectId): DurableObjectStub {
+    get(id: { toString(): string }) {
       const key = id.toString();
       return {
-        async fetch(_input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+        async fetch(_input: unknown, init?: { body?: unknown }): Promise<Response> {
           const raw = typeof init?.body === "string" ? init.body : "{}";
           const parsed = JSON.parse(raw) as { limit?: number; windowMs?: number; nowMs?: number };
           const limit = Math.max(1, Math.floor(Number(parsed.limit ?? 1)));
@@ -87,9 +87,9 @@ function createMockRateLimiterNamespace(): DurableObjectNamespace {
             retryAfterMs
           });
         }
-      } as DurableObjectStub;
+      };
     }
-  } as DurableObjectNamespace;
+  } as unknown as NonNullable<Env["RATE_LIMITER_DO"]>;
 }
 
 function base64Key32(): string {
@@ -100,7 +100,7 @@ function base64Key32(): string {
 
 export function createMockEnv(overrides: Partial<Env> = {}): Env {
   return {
-    OFP_KV: new MemoryKV(),
+    OFP_KV: new MemoryKV() as unknown as Env["OFP_KV"],
     RATE_LIMITER_DO: createMockRateLimiterNamespace(),
     TEST_AUTH_BYPASS: "1",
     SUPABASE_ANON_KEY: "test-anon-key",

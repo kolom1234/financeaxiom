@@ -1,129 +1,100 @@
-import { describe, expect, it } from "vitest";
-import { handlePushJob } from "../../src/push/queue";
+import { beforeEach, describe, expect, it } from "vitest";
+import { handlePushJob, matchesRule } from "../../src/push/queue";
+import type { PushDeliveryResult } from "../../src/push/webpush";
 import { MemoryStore } from "../../src/services/store";
 import { createMockEnv } from "../helpers/mockEnv";
-import type { PushQueueMessage } from "../../src/types";
+import { resetMemoryPushState, storeMemorySubscription, vapidEnv } from "../helpers/push";
+import type { AlertRuleRecord, PushQueueMessage } from "../../src/types";
 
-function resetPushState(): void {
-  const store = MemoryStore.get();
-  store.pushSubscriptions.length = 0;
-  store.alertRules.length = 0;
-  store.notificationEvents.length = 0;
+const message: PushQueueMessage = { job: "PUSH_FANOUT_BREAKING", run_id: "run-push", params: { limit: 10 } };
+
+function recordingSender(result: PushDeliveryResult = { outcome: "delivered", status: 201 }) {
+  const calls: Array<{ endpoint: string; p256dh: string; auth: string; payload: Record<string, unknown> }> = [];
+  return {
+    calls,
+    send: async (sub: { endpoint: string; p256dh: string; auth: string }, payload: Record<string, unknown>) => {
+      calls.push({ ...sub, payload });
+      return result;
+    }
+  };
 }
 
 describe("push queue fanout", () => {
-  it("dispatches once per user/item and includes attribution footer", async () => {
-    resetPushState();
-    const store = MemoryStore.get();
+  beforeEach(() => resetMemoryPushState());
 
-    store.upsertPushSubscription({
-      user_id: "user-a",
-      endpoint_hash: "endpoint-a",
-      endpoint_enc: "enc",
-      p256dh_enc: "p256",
-      auth_enc: "auth",
-      enc_iv: "iv",
-      filters: {}
-    });
-    store.saveAlertRule("user-a", {
-      enabled: true,
-      rule_type: "breaking",
-      rule: { tab: "breaking" }
-    });
-
-    const message: PushQueueMessage = {
-      job: "PUSH_FANOUT_BREAKING",
-      run_id: "run-push-1",
-      params: { limit: 10 }
-    };
-
+  it("does nothing (and records nothing as sent) when VAPID is not configured", async () => {
     const env = createMockEnv();
-    await handlePushJob(message, env);
-    await handlePushJob(message, env);
+    await storeMemorySubscription(env, "user-a");
+    MemoryStore.get().saveAlertRule("user-a", { enabled: true, rule_type: "breaking", rule: {} });
+    const sender = recordingSender();
+    const summary = await handlePushJob(message, env, { send: sender.send });
+    expect(summary.status).toBe("not_configured");
+    expect(sender.calls).toHaveLength(0);
+    expect(MemoryStore.get().listNotificationEvents("user-a")).toHaveLength(0);
+  });
 
-    const events = store.listNotificationEvents("user-a");
+  it("decrypts the stored subscription, delivers once per user/item, and includes the attribution footer", async () => {
+    const env = createMockEnv(await vapidEnv());
+    const { endpoint } = await storeMemorySubscription(env, "user-a");
+    MemoryStore.get().saveAlertRule("user-a", { enabled: true, rule_type: "breaking", rule: {} });
+    const sender = recordingSender();
+
+    await handlePushJob(message, env, { send: sender.send });
+    await handlePushJob(message, env, { send: sender.send });
+
+    const events = MemoryStore.get().listNotificationEvents("user-a");
     expect(events.length).toBeGreaterThan(0);
+    expect(sender.calls).toHaveLength(events.length); // second run is fully de-duplicated
+    expect(sender.calls.every((call) => call.endpoint === endpoint && call.p256dh.length > 80 && call.auth.length > 20)).toBe(true);
     for (const event of events) {
       expect(event.status).toBe("sent");
-      expect(event.payload.attribution_footer).toBeTypeOf("string");
-      expect((event.payload.attribution_footer as string).length).toBeGreaterThan(0);
+      expect(String(event.payload.attribution_footer).length).toBeGreaterThan(0);
     }
-
-    const itemIds = new Set(events.map((event) => event.item_id));
-    expect(itemIds.size).toBe(events.length);
   });
 
-  it("enforces per-user 10-per-hour notification cap", async () => {
-    resetPushState();
+  it("marks notifications failed (not sent) when delivery fails, and removes gone subscriptions", async () => {
+    const env = createMockEnv(await vapidEnv());
+    await storeMemorySubscription(env, "user-b");
+    MemoryStore.get().saveAlertRule("user-b", { enabled: true, rule_type: "breaking", rule: {} });
+
+    const summary = await handlePushJob(message, env, { send: recordingSender({ outcome: "gone", status: 410 }).send });
+    expect(summary.failed).toBeGreaterThan(0);
+    expect(summary.delivered).toBe(0);
+    expect(MemoryStore.get().listNotificationEvents("user-b").every((event) => event.status === "failed")).toBe(true);
+    expect(MemoryStore.get().listPushSubscriptions("user-b")).toHaveLength(0);
+  });
+
+  it("enforces the per-user 10-per-hour notification cap", async () => {
+    const env = createMockEnv(await vapidEnv());
+    await storeMemorySubscription(env, "user-c");
+    MemoryStore.get().saveAlertRule("user-c", { enabled: true, rule_type: "breaking", rule: {} });
     const store = MemoryStore.get();
-
-    store.upsertPushSubscription({
-      user_id: "user-b",
-      endpoint_hash: "endpoint-b",
-      endpoint_enc: "enc",
-      p256dh_enc: "p256",
-      auth_enc: "auth",
-      enc_iv: "iv",
-      filters: {}
-    });
-    store.saveAlertRule("user-b", {
-      enabled: true,
-      rule_type: "breaking",
-      rule: { tab: "breaking" }
-    });
-
-    const baseTime = Date.now();
-    for (let index = 0; index < 15; index += 1) {
-      store.appendContentItem({
-        item_id: `itm-limit-${index}`,
-        item_type: "gdelt_link",
-        event_time: new Date(baseTime + index * 1000).toISOString(),
-        headline_generated: `Synthetic breaking ${index}`,
-        summary_generated: "Detected via index metadata.",
-        external_url: "https://api.gdeltproject.org/api/v2/doc/doc?query=gdelt&mode=artlist&format=html&sort=datedesc&maxrecords=5",
-        source_name: "GDELT",
-        source_policy_url: "https://www.gdeltproject.org/about.html",
-        license_code: "GDELT",
-        commercial_status: "allowed",
-        attribution_text: "Index data: GDELT (citation + link).",
-        disclaimer_text: "Publisher content is not hosted on this site.",
-        entity_slugs: [],
-        is_breaking: true,
-        region: "GLOBAL",
-        meta: { test_case: "rate_limit" }
-      });
+    for (let index = 0; index < 10; index += 1) {
+      store.registerNotificationEvent("user-c", `prior-${index}`, {});
     }
-
-    const env = createMockEnv();
-    await handlePushJob(
-      {
-        job: "PUSH_FANOUT_BREAKING",
-        run_id: "run-push-2",
-        params: { limit: 40 }
-      },
-      env
-    );
-
-    const events = store.listNotificationEvents("user-b");
-    expect(events.length).toBe(10);
-    expect(events.every((event) => event.status === "sent")).toBe(true);
+    const sender = recordingSender();
+    const summary = await handlePushJob(message, env, { send: sender.send });
+    expect(sender.calls).toHaveLength(0);
+    expect(summary.skipped).toBeGreaterThan(0);
   });
 
-  it("fails closed when persistent stores are unavailable outside local fallback mode", async () => {
-    resetPushState();
-    const env = createMockEnv({
-      TEST_AUTH_BYPASS: "0"
-    });
+  it("fails closed when no persistent store exists outside local test mode", async () => {
+    const env = createMockEnv({ ...(await vapidEnv()), TEST_AUTH_BYPASS: undefined });
+    await expect(handlePushJob(message, env)).rejects.toThrow(/Persistent push store is unavailable/);
+  });
 
-    await expect(
-      handlePushJob(
-        {
-          job: "PUSH_FANOUT_BREAKING",
-          run_id: "run-push-prod",
-          params: { limit: 10 }
-        },
-        env
-      )
-    ).rejects.toThrow(/Persistent feed store is unavailable/);
+  it("matches filing_form rules on the exact form type", () => {
+    const rule = { rule_type: "filing_form", rule: { form_type: "8-K" }, enabled: true } as unknown as AlertRuleRecord;
+    const base = {
+      item_id: "i",
+      item_type: "sec_filing" as const,
+      event_time: new Date().toISOString(),
+      headline: "[Filing] NVIDIA CORP 8-K/A filed",
+      entities: [],
+      source: { name: "SEC EDGAR", policy_url: "" },
+      license: { code: "SEC_EDGAR", commercial_status: "allowed" as const, attribution_text: "Source: SEC EDGAR (official)." }
+    };
+    expect(matchesRule(rule, { ...base, meta: { form_type: "8-K/A" } })).toBe(false);
+    expect(matchesRule(rule, { ...base, meta: { form_type: "8-K" } })).toBe(true);
   });
 });
