@@ -1,4 +1,4 @@
-﻿# SPEC Audit Report (2026-02-18)
+# SPEC Audit Report (2026-02-18)
 
 Scope: `SPEC.md` sections 1, 2, 3, 5, 7, 9, 10, 11, 12, 13, 14, 15.
 

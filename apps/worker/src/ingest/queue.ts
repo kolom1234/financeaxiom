@@ -1,120 +1,96 @@
-import { buildGdeltSearchUrl, transformGdeltRecord } from "./gdelt";
-import { ingestGdeltToDb, ingestMacroToDb, ingestSecToDb } from "./live";
-import { applyEurostatFilter } from "./macro";
-import { assertSecPolicyReady, buildSecHeadline } from "./sec";
-import { ALLOWED_INGEST_JOBS } from "./types";
-import type { Env, IngestQueueMessage, InternalContentItem } from "../types";
-import { MemoryStore } from "../services/store";
-import { acquireSecPermit } from "../services/sec";
+import { withDb } from "../services/db";
+import { logEvent } from "../services/log";
+import { applyRetention } from "../services/postgres";
+import type { Env, IngestQueueMessage, MacroSource } from "../types";
+import { ingestBea } from "./sources/bea";
+import { ingestBls } from "./sources/bls";
+import { ingestEurostat, ingestOecd, ingestWorldBank } from "./sources/conditional";
+import { ingestEcb } from "./sources/ecb";
+import { ingestEia } from "./sources/eia";
+import { ingestFrb } from "./sources/frb";
+import { ingestGdelt } from "./sources/gdelt";
+import { ingestSec } from "./sources/sec";
+import type { IngestContext, SourceRunResult } from "./sources/types";
+import { ALLOWED_INGEST_JOBS, MACRO_SOURCES } from "./types";
 
-function assertKnownJob(job: string): asserts job is IngestQueueMessage["job"] {
-  if (!ALLOWED_INGEST_JOBS.includes(job as IngestQueueMessage["job"])) {
-    throw new Error(`Unsupported ingest job: ${job}`);
+const MACRO_RUNNERS: Record<MacroSource, (ctx: IngestContext) => Promise<SourceRunResult>> = {
+  BLS: ingestBls,
+  EIA: ingestEia,
+  ECB: ingestEcb,
+  FRB: ingestFrb,
+  BEA: ingestBea,
+  EUROSTAT: ingestEurostat,
+  OECD: ingestOecd,
+  WORLD_BANK: ingestWorldBank
+};
+
+export function isIngestMessage(input: unknown): input is IngestQueueMessage {
+  if (!input || typeof input !== "object") {
+    return false;
   }
+  const message = input as Partial<IngestQueueMessage>;
+  return (
+    typeof message.job === "string" &&
+    ALLOWED_INGEST_JOBS.includes(message.job) &&
+    typeof message.run_id === "string" &&
+    !!message.params &&
+    typeof message.params === "object"
+  );
 }
 
-function randomRunTag(runId: string): string {
-  return `${runId.slice(0, 8)}-${Math.floor(Math.random() * 1000)}`;
+function positiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-export async function handleIngestJob(message: IngestQueueMessage, env: Env): Promise<void> {
-  assertKnownJob(message.job);
-  const store = MemoryStore.get();
-
-  if (message.job === "INGEST_GDELT") {
-    try {
-      const persisted = await ingestGdeltToDb(message, env);
-      if (persisted) {
-        return;
-      }
-    } catch (error) {
-      console.error("ingest_gdelt_live_failed", error);
-    }
-
-    const entity = typeof message.params.entity === "string" ? message.params.entity : "Market";
-    const record = transformGdeltRecord({
-      entity,
-      window: "5m",
-      external_url: buildGdeltSearchUrl(entity)
-    });
-    store.appendContentItem(record);
-    return;
+/**
+ * Runs one ingest job. Any failure throws, so the queue retries the message
+ * with backoff and eventually dead-letters it; nothing is silently replaced
+ * with placeholder data.
+ */
+export async function handleIngestJob(message: IngestQueueMessage, env: Env): Promise<SourceRunResult[]> {
+  const started = Date.now();
+  const results = await runJob(message, env);
+  for (const result of results) {
+    logEvent("info", "ingest_completed", { job: message.job, run_id: message.run_id, duration_ms: Date.now() - started, ...result });
   }
+  return results;
+}
 
-  if (message.job === "INGEST_SEC") {
-    try {
-      const persisted = await ingestSecToDb(message, env);
-      if (persisted) {
-        return;
-      }
-    } catch (error) {
-      console.error("ingest_sec_live_failed", error);
+async function runJob(message: IngestQueueMessage, env: Env): Promise<SourceRunResult[]> {
+  switch (message.job) {
+    case "RECOMPUTE_DERIVED":
+      // Retired job type; derived series are computed during ingestion.
+      return [];
+    case "MAINTENANCE_RETENTION": {
+      const removed = await applyRetention(env, {
+        gdeltDays: positiveInt(env.GDELT_RETENTION_DAYS, 90),
+        notificationDays: positiveInt(env.NOTIFICATION_RETENTION_DAYS, 90)
+      });
+      return [{ source: "RETENTION", status: "ok", note: JSON.stringify(removed) }];
     }
-
-    assertSecPolicyReady(env.SEC_USER_AGENT);
-    await acquireSecPermit(env);
-    const accession = String(message.params.accession ?? "0000000000-26-000000");
-    const company = String(message.params.company ?? "Company");
-    const formType = String(message.params.form_type ?? "8-K");
-    const created: InternalContentItem = {
-      item_id: crypto.randomUUID(),
-      item_type: "sec_filing",
-      event_time: new Date().toISOString(),
-      headline_generated: buildSecHeadline({ accession, company, form_type: formType, sec_url: "https://www.sec.gov/" }),
-      summary_generated: "Filed recently. Open SEC.gov for the official document.",
-      external_url: "https://www.sec.gov/",
-      source_name: "SEC EDGAR",
-      source_policy_url: "https://www.sec.gov/search-filings/edgar-search-assistance/accessing-edgar-data",
-      license_code: "SEC_EDGAR",
-      commercial_status: "allowed",
-      attribution_text: "Source: SEC EDGAR (official).",
-      disclaimer_text: "Open SEC.gov for official filing text.",
-      entity_slugs: [],
-      is_breaking: true,
-      region: "US",
-      meta: { accession, run_tag: randomRunTag(message.run_id) }
-    };
-    store.appendContentItem(created);
-    return;
-  }
-
-  if (message.job === "INGEST_MACRO") {
-    try {
-      const persisted = await ingestMacroToDb(message, env);
-      if (persisted) {
-        return;
+    case "INGEST_GDELT":
+      return [await withDb(env, (client) => ingestGdelt({ client, env, runId: message.run_id }))];
+    case "INGEST_SEC": {
+      const cik = typeof message.params.cik === "string" ? message.params.cik : "";
+      if (!/^\d{1,10}$/.test(cik)) {
+        throw new Error("INGEST_SEC requires params.cik (digits).");
       }
-    } catch (error) {
-      console.error("ingest_macro_live_failed", error);
+      return [await withDb(env, (client) => ingestSec({ client, env, runId: message.run_id }, cik))];
     }
-
-    const filtered = applyEurostatFilter([
-      { geo: "EU", value: 1.1 },
-      { geo: "US", value: 2.2 }
-    ]);
-    const created: InternalContentItem = {
-      item_id: crypto.randomUUID(),
-      item_type: "macro_update",
-      event_time: new Date().toISOString(),
-      headline_generated: "Macro indicator refresh completed",
-      summary_generated: `Eurostat rows accepted: ${filtered.length}`,
-      external_url: "https://ec.europa.eu/eurostat",
-      source_name: "Eurostat",
-      source_policy_url: "https://ec.europa.eu/eurostat/help/copyright-notice",
-      license_code: "EUROSTAT_CONDITIONAL",
-      commercial_status: "conditional",
-      attribution_text: "Source: Eurostat (subject to exceptions).",
-      disclaimer_text: "Blocked from production until cleared.",
-      entity_slugs: [],
-      is_breaking: false,
-      region: "EU",
-      meta: { accepted_rows: filtered.length }
-    };
-    store.appendContentItem(created);
-    return;
-  }
-
-  if (message.job === "RECOMPUTE_DERIVED") {
-    return;
+    case "INGEST_MACRO": {
+      const requested = message.params.source;
+      // Legacy messages without `source` run every macro source.
+      const sources = typeof requested === "string" ? [requested] : MACRO_SOURCES;
+      const results: SourceRunResult[] = [];
+      for (const source of sources) {
+        const runner = MACRO_RUNNERS[source as MacroSource];
+        if (!runner) {
+          throw new Error(`Unknown macro source: ${String(source)}`);
+        }
+        results.push(await withDb(env, (client) => runner({ client, env, runId: message.run_id })));
+      }
+      return results;
+    }
   }
 }

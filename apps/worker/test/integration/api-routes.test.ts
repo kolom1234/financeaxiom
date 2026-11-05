@@ -4,6 +4,7 @@ import { createMockEnv } from "../helpers/mockEnv";
 import { MemoryStore } from "../../src/services/store";
 import { checkRateLimit, rateLimitKey } from "../../src/services/rateLimit";
 import type { PushQueueMessage } from "../../src/types";
+import { createBrowserSubscription, resetMemoryPushState, vapidEnv } from "../helpers/push";
 
 async function responseJson(response: Response): Promise<any> {
   return response.json();
@@ -135,7 +136,7 @@ describe("worker API routes", () => {
 
     expect(response.status).toBe(400);
     expect(payload.ok).toBe(false);
-    expect(payload.error.message).toMatch(/Invalid login payload/);
+    expect(payload.error.message).toMatch(/Invalid request body/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -278,7 +279,7 @@ describe("worker API routes", () => {
 
     expect(response.status).toBe(400);
     expect(payload.ok).toBe(false);
-    expect(payload.error.message).toMatch(/Invalid signup payload/);
+    expect(payload.error.message).toMatch(/redirect_to: origin is not allowed/);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
@@ -693,7 +694,7 @@ describe("worker API routes", () => {
       }),
       env
     );
-    expect(createResponse.status).toBe(200);
+    expect(createResponse.status).toBe(201);
 
     const readResponse = await worker.fetch(
       new Request("http://localhost/api/alerts/rules", {
@@ -705,89 +706,93 @@ describe("worker API routes", () => {
     expect(readPayload.data.rules.length).toBeGreaterThan(0);
   });
 
-  it("normalizes cached gdelt links before response", async () => {
+  it("normalizes gdelt links in feed responses", async () => {
     const env = createMockEnv();
-    const cacheKey = "feed:breaking::GLOBAL:0";
-    const cachedPayload = {
-      items: [
-        {
-          item_id: "gdelt-cache-hit",
-          item_type: "gdelt_link",
-          event_time: new Date().toISOString(),
-          headline: "SEC mentions spike",
-          summary: null,
-          external_url: "https://api.gdeltproject.org/api/v2/doc/doc?query=SEC&mode=artlist&format=html&sort=datedesc&maxrecords=20",
-          source: { name: "GDELT", policy_url: "" },
-          license: {
-            code: "GDELT",
-            commercial_status: "allowed",
-            attribution_text: "Index data: GDELT (citation + link).",
-            disclaimer_text: "Publisher content is not hosted on this site."
-          },
-          entities: []
-        }
-      ],
-      next_cursor: null
-    };
-
-    await env.OFP_KV.put(cacheKey, JSON.stringify(cachedPayload));
+    MemoryStore.get().appendContentItem({
+      item_id: "00000000-0000-4000-8000-00000000abcd",
+      item_type: "gdelt_link",
+      event_time: new Date(Date.now() + 60_000).toISOString(),
+      headline_generated: "SEC index activity (15-minute): 12 articles",
+      summary_generated: null,
+      external_url: "https://api.gdeltproject.org/api/v2/doc/doc?query=SEC&mode=artlist&format=html&sort=datedesc&maxrecords=20",
+      source_name: "GDELT",
+      source_policy_url: "",
+      license_code: "GDELT",
+      commercial_status: "allowed",
+      attribution_text: "Index data: GDELT (citation + link).",
+      disclaimer_text: "Publisher content is not hosted on this site.",
+      entity_slugs: [],
+      is_breaking: true,
+      region: "GLOBAL",
+      meta: {}
+    });
 
     const response = await worker.fetch(new Request("http://localhost/api/feed?tab=breaking"), env);
     expect(response.status).toBe(200);
     const payload = await responseJson(response);
-
-    expect(payload.data.items[0].external_url).toBe(
+    const item = payload.data.items.find((entry: { item_id: string }) => entry.item_id === "00000000-0000-4000-8000-00000000abcd");
+    expect(item.external_url).toBe(
       "https://api.gdeltproject.org/api/v2/doc/doc?query=SEC&mode=artlist&format=html&sort=datedesc&maxrecords=5"
     );
   });
 
-  it("processes push queue fanout message through worker queue handler", async () => {
+  it("subscribes through the API and delivers a real encrypted Web Push via the queue handler", async () => {
+    resetMemoryPushState();
+    const env = createMockEnv(await vapidEnv());
+    const subscription = await createBrowserSubscription();
+
+    const subscribeResponse = await worker.fetch(
+      new Request("http://localhost/api/push/subscribe", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer test-user:queue-user" },
+        body: JSON.stringify(subscription)
+      }),
+      env
+    );
+    expect(subscribeResponse.status).toBe(200);
+    MemoryStore.get().saveAlertRule("queue-user", { enabled: true, rule_type: "breaking", rule: { tab: "breaking" } });
+
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 201 }));
+    const acked: string[] = [];
+    const message: PushQueueMessage = { job: "PUSH_FANOUT_BREAKING", run_id: "run-queue-push", params: { limit: 5 } };
+    await worker.queue(
+      {
+        queue: "ofp-push",
+        messages: [{ body: message, attempts: 1, ack: () => acked.push("ack"), retry: () => acked.push("retry") }]
+      } as any,
+      env
+    );
+
+    expect(acked).toEqual(["ack"]);
+    const pushCalls = fetchSpy.mock.calls.filter(([url]) => String(url) === subscription.endpoint);
+    expect(pushCalls.length).toBeGreaterThan(0);
+    const init = pushCalls[0]![1] as RequestInit & { headers: Record<string, string> };
+    expect(init.headers["Content-Encoding"]).toBe("aes128gcm");
+    expect(init.headers.Authorization).toMatch(/^vapid t=.+, k=/);
+
+    const events = MemoryStore.get().listNotificationEvents("queue-user");
+    expect(events.length).toBe(pushCalls.length);
+    expect(events.every((event) => event.status === "sent")).toBe(true);
+  });
+
+  it("rejects push subscriptions for non push-service endpoints (SSRF guard) and malformed keys", async () => {
     const env = createMockEnv();
-    const store = MemoryStore.get();
-    store.pushSubscriptions.length = 0;
-    store.alertRules.length = 0;
-    store.notificationEvents.length = 0;
-
-    store.upsertPushSubscription({
-      user_id: "queue-user",
-      endpoint_hash: "queue-endpoint",
-      endpoint_enc: "enc",
-      p256dh_enc: "p256",
-      auth_enc: "auth",
-      enc_iv: "iv",
-      filters: {}
-    });
-    store.saveAlertRule("queue-user", {
-      enabled: true,
-      rule_type: "breaking",
-      rule: { tab: "breaking" }
-    });
-
-    const message: PushQueueMessage = {
-      job: "PUSH_FANOUT_BREAKING",
-      run_id: "run-queue-push",
-      params: { limit: 5 }
-    };
-
-    const batch = {
-      messages: [
-        {
-          body: message,
-          ack() {
-            return;
-          },
-          retry() {
-            return;
-          }
-        }
-      ]
-    };
-
-    await worker.queue(batch as any, env);
-
-    const events = store.listNotificationEvents("queue-user");
-    expect(events.length).toBeGreaterThan(0);
-    expect(events[0].status).toBe("sent");
+    const subscription = await createBrowserSubscription();
+    for (const body of [
+      { ...subscription, endpoint: "https://169.254.169.254/latest/meta-data" },
+      { ...subscription, endpoint: "http://fcm.googleapis.com/fcm/send/x" },
+      { ...subscription, keys: { p256dh: "not-a-key", auth: subscription.keys.auth } }
+    ]) {
+      const response = await worker.fetch(
+        new Request("http://localhost/api/push/subscribe", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer test-user:user-ssrf" },
+          body: JSON.stringify(body)
+        }),
+        env
+      );
+      expect(response.status).toBe(400);
+    }
   });
 
   it("supports account audit write and read flow", async () => {
@@ -828,7 +833,8 @@ describe("worker API routes", () => {
     expect(getPayload.data.events[0].action).toBe("login");
     expect(getPayload.data.events[0].outcome).toBe("success");
     expect(getPayload.data.events[0].details).toBe("unit-test login success");
-    expect(getPayload.data.events[0].source).toBe("server");
+    // Browser-reported events are labelled as such; only the worker's own records are "server".
+    expect(getPayload.data.events[0].source).toBe("client");
   });
 
   it("rejects invalid account audit payloads", async () => {

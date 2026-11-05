@@ -1,7 +1,8 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, PointerEvent } from "react";
 import type { FeedItemPayload } from "@ofp/shared";
-import { getFeed, getIndicators, type FeedTab } from "../lib/api";
+import { getFeed, getIndicators, type FeedTab, type IndicatorCard } from "../lib/api";
+import { indicatorDelta } from "../lib/indicatorFormat";
 import { AdSlot } from "../components/AdSlot";
 import { IndicatorMatrix } from "../components/IndicatorMatrix";
 import { LicenseBadge } from "../components/LicenseBadge";
@@ -13,16 +14,6 @@ import { buildGdeltSourcePreviewUrl, resolveOpenSourceUrl } from "../lib/feedLin
 const tabs: readonly FeedTab[] = ["breaking", "filings", "macro", "newsindex"];
 
 type Tab = (typeof tabs)[number];
-type IndicatorCard = {
-  series_id: string;
-  title: string;
-  latest_value: number;
-  period: string;
-  yoy: number;
-  sparkline: number[];
-  source: { name: string; policy_url?: string };
-  license: { code?: string; attribution_text: string };
-};
 
 type FeedByTab = Record<Tab, FeedItemPayload[]>;
 
@@ -276,14 +267,12 @@ export function HomePage(): JSX.Element {
 
   const feedStats = useMemo(() => {
     const indicatorCount = indicatorCards.length;
-    const avgYoy =
-      indicatorCount === 0
-        ? 0
-        : indicatorCards.reduce((sum, card) => sum + Number(card.yoy || 0), 0) / Math.max(indicatorCount, 1);
+    // YoY is only defined for level series; % series report a pp change instead.
+    const yoyValues = indicatorCards.map((card) => card.yoy).filter((value): value is number => typeof value === "number");
+    const avgYoy = yoyValues.length === 0 ? null : yoyValues.reduce((sum, value) => sum + value, 0) / yoyValues.length;
+    const deltas = indicatorCards.map((card) => indicatorDelta(card)).filter((delta) => delta.value !== null);
     const positiveRatio =
-      indicatorCount === 0
-        ? 0
-        : (indicatorCards.filter((card) => Number(card.yoy) >= 0).length / indicatorCount) * 100;
+      indicatorCount === 0 || deltas.length === 0 ? null : (deltas.filter((delta) => delta.direction !== "down").length / deltas.length) * 100;
 
     return {
       totalEvents: allItems.length,
@@ -467,7 +456,7 @@ export function HomePage(): JSX.Element {
 
           <div className="status-ribbon" aria-live="polite">
             <span className={`live-chip ${inFallbackMode ? "degraded" : "live"}`}>
-              {inFallbackMode ? "Fallback Snapshot" : "Live API Sync"}
+              {inFallbackMode ? "Live Data Unavailable" : "Live API Sync"}
             </span>
             <span className="status-pill">Last sync {formatSyncClock(lastSyncedAt)}</span>
             <span className="status-pill">View {activeFeed.length} events</span>
@@ -494,7 +483,7 @@ export function HomePage(): JSX.Element {
 
         {inFallbackMode ? (
           <aside className="system-banner glass-panel" aria-live="polite">
-            Live API is temporarily unavailable. Rendering validated fallback snapshots until connectivity recovers.
+            Live data is temporarily unavailable. Showing the last data received in this session (if any); nothing shown here is simulated.
           </aside>
         ) : null}
 
@@ -738,12 +727,12 @@ export function HomePage(): JSX.Element {
               <dd>{feedStats.macroCount}</dd>
             </div>
             <div>
-              <dt>Avg YoY</dt>
-              <dd>{feedStats.avgYoy.toFixed(2)}%</dd>
+              <dt>Avg YoY (level series)</dt>
+              <dd>{feedStats.avgYoy === null ? "n/a" : `${feedStats.avgYoy.toFixed(2)}%`}</dd>
             </div>
             <div>
               <dt>Positive Share</dt>
-              <dd>{feedStats.positiveRatio.toFixed(0)}%</dd>
+              <dd>{feedStats.positiveRatio === null ? "n/a" : `${feedStats.positiveRatio.toFixed(0)}%`}</dd>
             </div>
           </dl>
         </article>

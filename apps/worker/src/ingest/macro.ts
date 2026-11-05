@@ -1,4 +1,4 @@
-import { gateC_eurostatGeo, gateD_ecbRawImmutability, gateE_restrictedDataset } from "../compliance/gates";
+import { gateC_eurostatGeo, gateD_rawValueUnmodified, gateE_restrictedDataset } from "../compliance/gates";
 
 export interface MacroRow {
   geo?: string | null;
@@ -9,10 +9,10 @@ export function applyEurostatFilter<T extends MacroRow>(rows: T[]): T[] {
   return gateC_eurostatGeo(rows);
 }
 
-export async function validateEcbRawUnchanged(previousRaw: string, nextRaw: string): Promise<void> {
-  const ok = await gateD_ecbRawImmutability(previousRaw, nextRaw);
-  if (!ok) {
-    throw new Error("ECB raw locked series changed unexpectedly.");
+/** Throws if a stored raw value differs from the published text (raw values must not be transformed). */
+export function assertRawValueUnmodified(published: string, stored: string): void {
+  if (!gateD_rawValueUnmodified(published, stored)) {
+    throw new Error("Raw-locked value was modified before storage.");
   }
 }
 

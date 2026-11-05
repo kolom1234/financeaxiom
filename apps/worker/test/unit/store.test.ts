@@ -19,9 +19,11 @@ describe("memory store safeguards", () => {
         user_id: `user-${index}`,
         endpoint_hash: `endpoint-${index}`,
         endpoint_enc: "enc",
+        endpoint_iv: "iv",
         p256dh_enc: "p256",
+        p256dh_iv: "iv2",
         auth_enc: "auth",
-        enc_iv: "iv",
+        auth_iv: "iv3",
         filters: {}
       });
       store.saveAlertRule(`user-${index}`, {

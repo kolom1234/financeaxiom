@@ -1,8 +1,8 @@
 THIRD_PARTY_NOTICES
 
-Generated at (UTC): 2026-02-20T06:32:34.134Z
+Generated at (UTC): 2026-11-05T01:42:18.927Z
 Source lockfile: package-lock.json
-Lockfile SHA256: f86f3515410fde82d23ece68c801decf5c67f565f0d6469692233c8708e54005
+Lockfile SHA256: 0ca6def55c9712db9305444256365651ad79da017cbb90149bb6f1b9a52df72d
 
 This file lists third-party npm packages and declared licenses from package-lock metadata.
 Validate notice/source-offer obligations against your actual distribution model.
@@ -130,6 +130,10 @@ Validate notice/source-offer obligations against your actual distribution model.
 @cspotcode/source-map-support/node_modules/@jridgewell/trace-mapping@0.3.9
   License: MIT
   Resolved: https://registry.npmjs.org/@jridgewell/trace-mapping/-/trace-mapping-0.3.9.tgz
+
+@electric-sql/pglite@0.5.10
+  License: Apache-2.0
+  Resolved: https://registry.npmjs.org/@electric-sql/pglite/-/pglite-0.5.10.tgz
 
 @emnapi/runtime@1.8.1
   License: MIT

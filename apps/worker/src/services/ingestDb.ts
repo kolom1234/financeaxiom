@@ -1,8 +1,5 @@
-import { Client } from "pg";
 import type { CommercialStatus } from "@ofp/shared";
-import type { Env } from "../types";
-
-type PgClient = InstanceType<typeof Client>;
+import type { PgClient } from "./db";
 
 export interface SourceContext {
   sourceId: string;
@@ -63,35 +60,10 @@ export interface UpsertEntityInput {
   name: string;
   entityType: "company" | "agency" | "country" | "index" | "topic";
   primaryTicker?: string | null;
+  cik?: string | null;
   tickers?: string[] | null;
   exchanges?: string[] | null;
   meta?: Record<string, unknown>;
-}
-
-function connectionStringFromEnv(env: Env): string | null {
-  const fromHyperdrive = (env.HYPERDRIVE as { connectionString?: string } | undefined)?.connectionString;
-  return fromHyperdrive ?? env.DATABASE_URL ?? null;
-}
-
-export async function withIngestDb<T>(env: Env, fn: (client: PgClient) => Promise<T>): Promise<T | null> {
-  const connectionString = connectionStringFromEnv(env);
-  if (!connectionString) {
-    return null;
-  }
-
-  const client = new Client({ connectionString });
-  try {
-    await client.connect();
-  } catch (error) {
-    console.error("ingest_db_connect_failed", error);
-    return null;
-  }
-
-  try {
-    return await fn(client);
-  } finally {
-    await client.end();
-  }
 }
 
 export async function resolveSourceContext(client: PgClient, sourceName: string): Promise<SourceContext | null> {
@@ -165,10 +137,10 @@ export async function upsertEntity(client: PgClient, input: UpsertEntityInput): 
   const result = await client.query(
     `
     insert into entities (
-      slug, entity_type, name, primary_ticker, tickers, exchanges, meta, updated_at
+      slug, entity_type, name, primary_ticker, tickers, exchanges, meta, cik, updated_at
     )
     values (
-      $1, $2, $3, $4, $5, $6, $7::jsonb, now()
+      $1, $2, $3, $4, $5, $6, $7::jsonb, $8, now()
     )
     on conflict (slug) do update
     set
@@ -178,6 +150,7 @@ export async function upsertEntity(client: PgClient, input: UpsertEntityInput): 
       tickers = coalesce(excluded.tickers, entities.tickers),
       exchanges = coalesce(excluded.exchanges, entities.exchanges),
       meta = coalesce(excluded.meta, entities.meta),
+      cik = coalesce(excluded.cik, entities.cik),
       updated_at = now()
     returning entity_id
   `,
@@ -188,7 +161,8 @@ export async function upsertEntity(client: PgClient, input: UpsertEntityInput): 
       input.primaryTicker ?? null,
       input.tickers ?? null,
       input.exchanges ?? null,
-      JSON.stringify(input.meta ?? {})
+      JSON.stringify(input.meta ?? {}),
+      input.cik ?? null
     ]
   );
   return result.rows[0].entity_id as string;
@@ -236,37 +210,47 @@ export async function upsertSeries(client: PgClient, input: UpsertSeriesInput): 
   return result.rows[0].series_id as string;
 }
 
-export async function getExistingObservationRaw(
+/** Existing raw values for the given dates, keyed by YYYY-MM-DD. */
+export async function getExistingObservations(
   client: PgClient,
   seriesId: string,
-  obsDate: string
-): Promise<string | null> {
+  obsDates: string[]
+): Promise<Map<string, { valueRaw: string; sourceHash: string | null }>> {
+  const existing = new Map<string, { valueRaw: string; sourceHash: string | null }>();
+  if (obsDates.length === 0) {
+    return existing;
+  }
   const result = await client.query(
     `
-    select value_raw
+    select obs_date::text as obs_date, value_raw, source_hash
     from series_observations
-    where series_id = $1 and obs_date = $2::date
-    limit 1
+    where series_id = $1 and obs_date = any($2::date[])
   `,
-    [seriesId, obsDate]
+    [seriesId, obsDates]
   );
-  if (result.rowCount === 0) {
-    return null;
+  for (const row of result.rows as Record<string, unknown>[]) {
+    existing.set(String(row.obs_date), {
+      valueRaw: String(row.value_raw),
+      sourceHash: (row.source_hash as string | null) ?? null
+    });
   }
-  return (result.rows[0].value_raw as string | null) ?? null;
+  return existing;
 }
 
-export async function upsertSeriesObservation(
+/** Upserts all observations of a series in one statement. */
+export async function upsertSeriesObservations(
   client: PgClient,
   seriesId: string,
-  observation: SeriesObservationInput
-): Promise<void> {
-  await client.query(
+  observations: SeriesObservationInput[]
+): Promise<number> {
+  if (observations.length === 0) {
+    return 0;
+  }
+  const result = await client.query(
     `
-    insert into series_observations (
-      series_id, obs_date, value_raw, value_num, source_hash, fetched_at
-    )
-    values ($1, $2::date, $3, $4, $5, now())
+    insert into series_observations (series_id, obs_date, value_raw, value_num, source_hash, fetched_at)
+    select $1::uuid, t.obs_date::date, t.value_raw, t.value_num, t.source_hash, now()
+    from unnest($2::text[], $3::text[], $4::float8[], $5::text[]) as t(obs_date, value_raw, value_num, source_hash)
     on conflict (series_id, obs_date) do update
     set
       value_raw = excluded.value_raw,
@@ -274,31 +258,80 @@ export async function upsertSeriesObservation(
       source_hash = coalesce(excluded.source_hash, series_observations.source_hash),
       fetched_at = now()
   `,
-    [seriesId, observation.obsDate, observation.valueRaw, observation.valueNum, observation.sourceHash ?? null]
+    [
+      seriesId,
+      observations.map((obs) => obs.obsDate),
+      observations.map((obs) => obs.valueRaw),
+      observations.map((obs) => obs.valueNum),
+      observations.map((obs) => obs.sourceHash ?? null)
+    ]
+  );
+  return result.rowCount ?? 0;
+}
+
+export interface ObservationRevision {
+  obsDate: string;
+  previousValueRaw: string;
+  newValueRaw: string;
+  previousSourceHash: string | null;
+  newSourceHash: string | null;
+}
+
+export async function recordObservationRevisions(
+  client: PgClient,
+  seriesId: string,
+  revisions: ObservationRevision[]
+): Promise<void> {
+  if (revisions.length === 0) {
+    return;
+  }
+  await client.query(
+    `
+    insert into series_observation_revisions (
+      series_id, obs_date, previous_value_raw, new_value_raw, previous_source_hash, new_source_hash
+    )
+    select $1::uuid, t.obs_date::date, t.prev_raw, t.new_raw, t.prev_hash, t.new_hash
+    from unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) as t(obs_date, prev_raw, new_raw, prev_hash, new_hash)
+  `,
+    [
+      seriesId,
+      revisions.map((rev) => rev.obsDate),
+      revisions.map((rev) => rev.previousValueRaw),
+      revisions.map((rev) => rev.newValueRaw),
+      revisions.map((rev) => rev.previousSourceHash),
+      revisions.map((rev) => rev.newSourceHash)
+    ]
   );
 }
 
+/**
+ * Atomic upsert keyed by (source_id, dedupe_key). On conflict the descriptive
+ * fields are refreshed but `event_time` is NEVER changed, so an already-known
+ * item cannot be re-dated and resurface as "new".
+ */
 export async function upsertContentItem(
   client: PgClient,
   input: UpsertContentItemInput
 ): Promise<{ itemId: string; inserted: boolean }> {
   const meta = { ...input.meta, dedupe_key: input.dedupeKey };
-  const insertResult = await client.query(
+  const result = await client.query(
     `
     insert into content_items (
       item_type, event_time, headline_generated, summary_generated, external_url,
-      source_id, license_id, is_breaking, region, meta
+      source_id, license_id, is_breaking, region, meta, dedupe_key
     )
-    select
-      $1, $2::timestamptz, $3, $4, $5,
-      $6, $7, $8, $9, $10::jsonb
-    where not exists (
-      select 1
-      from content_items
-      where source_id = $6
-        and coalesce(meta->>'dedupe_key', '') = $11
-    )
-    returning item_id
+    values ($1, $2::timestamptz, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
+    on conflict (source_id, dedupe_key) where dedupe_key is not null
+    do update set
+      item_type = excluded.item_type,
+      headline_generated = excluded.headline_generated,
+      summary_generated = excluded.summary_generated,
+      external_url = excluded.external_url,
+      license_id = excluded.license_id,
+      is_breaking = excluded.is_breaking,
+      region = excluded.region,
+      meta = excluded.meta
+    returning item_id, (xmax = 0) as inserted
   `,
     [
       input.itemType,
@@ -314,64 +347,8 @@ export async function upsertContentItem(
       input.dedupeKey
     ]
   );
-
-  if ((insertResult.rowCount ?? 0) > 0 && insertResult.rows[0]) {
-    return {
-      itemId: insertResult.rows[0].item_id as string,
-      inserted: true
-    };
-  }
-
-  const existing = await client.query(
-    `
-    select item_id
-    from content_items
-    where source_id = $1
-      and coalesce(meta->>'dedupe_key', '') = $2
-    order by event_time desc
-    limit 1
-  `,
-    [input.sourceId, input.dedupeKey]
-  );
-
-  const existingId = existing.rows[0]?.item_id as string | undefined;
-  if (!existingId) {
-    throw new Error(`Failed to resolve existing content item for dedupe key: ${input.dedupeKey}`);
-  }
-
-  await client.query(
-    `
-    update content_items
-    set
-      item_type = $2,
-      event_time = $3::timestamptz,
-      headline_generated = $4,
-      summary_generated = $5,
-      external_url = $6,
-      license_id = $7,
-      is_breaking = $8,
-      region = $9,
-      meta = $10::jsonb
-    where item_id = $1
-  `,
-    [
-      existingId,
-      input.itemType,
-      input.eventTime,
-      input.headline,
-      input.summary ?? null,
-      input.externalUrl ?? null,
-      input.licenseId,
-      input.isBreaking,
-      input.region,
-      JSON.stringify(meta)
-    ]
-  );
-
-  return {
-    itemId: existingId,
-    inserted: false
-  };
+  const row = result.rows[0] as Record<string, unknown>;
+  return { itemId: String(row.item_id), inserted: Boolean(row.inserted) };
 }
 
 export async function upsertFiling(
@@ -434,5 +411,19 @@ export async function linkItemEntity(
     on conflict (item_id, entity_id) do nothing
   `,
     [itemId, entitySlug, role]
+  );
+}
+
+/** Links an item to the entity registered with the given SEC CIK, if any. */
+export async function linkItemEntityByCik(client: PgClient, itemId: string, cik: string, role: string): Promise<void> {
+  await client.query(
+    `
+    insert into content_item_entities (item_id, entity_id, role)
+    select $1, e.entity_id, $3
+    from entities e
+    where e.cik = $2
+    on conflict (item_id, entity_id) do nothing
+  `,
+    [itemId, cik, role]
   );
 }

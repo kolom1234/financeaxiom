@@ -1,13 +1,5 @@
-type IndicatorCard = {
-  series_id: string;
-  title: string;
-  latest_value: number;
-  period: string;
-  yoy: number;
-  sparkline: number[];
-  source: { name: string; policy_url?: string };
-  license: { code?: string; attribution_text: string };
-};
+import type { IndicatorCard } from "../lib/api";
+import { indicatorDelta } from "../lib/indicatorFormat";
 
 type MiniPoint = {
   x: number;
@@ -70,11 +62,6 @@ function compactFormat(value: number): string {
   }).format(value);
 }
 
-function formatDelta(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
-}
-
 export function IndicatorMatrix({
   cards,
   stale
@@ -93,7 +80,7 @@ export function IndicatorMatrix({
           <p className="panel-kicker">Expanded Coverage</p>
           <h2>Live Indicator Matrix</h2>
         </div>
-        <span className={`live-chip ${stale ? "degraded" : "live"}`}>{stale ? "Fallback" : "Live"}</span>
+        <span className={`live-chip ${stale ? "degraded" : "live"}`}>{stale ? "Unavailable" : "Live"}</span>
       </header>
 
       <ul className="matrix-grid">
@@ -116,7 +103,7 @@ export function IndicatorMatrix({
             <li key={card.series_id} className="matrix-card">
               <div className="matrix-topline">
                 <p className="matrix-title">{card.title}</p>
-                <span className={`mini-yoy ${card.yoy >= 0 ? "up" : "down"}`}>{formatDelta(card.yoy)}</span>
+                <span className={`mini-yoy ${indicatorDelta(card).direction === "down" ? "down" : "up"}`}>{indicatorDelta(card).label}</span>
               </div>
 
               <div className="matrix-value-row">

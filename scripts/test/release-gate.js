@@ -1,90 +1,76 @@
+#!/usr/bin/env node
+/*
+ * Release gate. Compliance is verified by *behaviour*:
+ *   1. the worker compliance suite (pure gates + real-Postgres checks of
+ *      license exposure, GDELT attribution, raw-value preservation, RLS),
+ *   2. the real-Postgres API/ingest suites,
+ * plus configuration checks that cannot be expressed as unit tests.
+ * Monetization readiness (ads.txt / sellers.json) is reported as a warning,
+ * not a pass, while no seller is configured.
+ */
+const { spawnSync } = require("child_process");
 const fs = require("fs");
+const path = require("path");
 
-function has(path, pattern) {
-  const content = fs.readFileSync(path, "utf8");
-  return pattern.test(content);
-}
+const root = path.resolve(__dirname, "..", "..");
+const read = (relative) => fs.readFileSync(path.join(root, relative), "utf8");
+let failures = 0;
 
-function exists(path) {
-  return fs.existsSync(path);
-}
-
-const checks = [
-  {
-    id: "No FRED data path",
-    pass:
-      has("apps/worker/src/compliance/gates.ts", /gateF_fredHardBlock/) &&
-      !has("apps/worker/src/ingest/types.ts", /FRED/)
-  },
-  {
-    id: "GDELT citation visible",
-    pass: has("apps/worker/src/services/store.ts", /Index data: GDELT/)
-  },
-  {
-    id: "SEC 10 rps + declared UA",
-    pass:
-      has("apps/worker/src/services/rateLimiter.ts", /maxPerSecond/) &&
-      has("apps/worker/src/services/sec.ts", /SEC_USER_AGENT/)
-  },
-  {
-    id: "ECB raw vs derived separation",
-    pass:
-      has("apps/worker/src/services/store.ts", /raw_locked: true/) &&
-      has("apps/worker/src/services/store.ts", /is_derived: true/)
-  },
-  {
-    id: "Eurostat geo filter enforced",
-    pass: has("apps/worker/src/compliance/gates.ts", /gateC_eurostatGeo/)
-  },
-  {
-    id: "OECD/WB restricted gated",
-    pass: has("apps/worker/src/compliance/gates.ts", /gateE_restrictedDataset/)
-  },
-  {
-    id: "EU pre-consent ad block",
-    pass:
-      has("apps/web/src/components/AdSlot.tsx", /regionPolicy === "EU_UK_CH"/) &&
-      has("apps/web/src/components/ConsentBanner.tsx", /Consent required/)
-  },
-  {
-    id: "CMP signal bridge present (TCF/GPP/USP)",
-    pass:
-      has("apps/web/src/components/AdSlot.tsx", /__tcfapi/) &&
-      has("apps/web/src/components/AdSlot.tsx", /__gpp/) &&
-      has("apps/web/src/components/AdSlot.tsx", /__uspapi/)
-  },
-  {
-    id: "US-state privacy geo policy",
-    pass:
-      has("apps/worker/src/routes/geo.ts", /US_STATE_PRIVACY/) &&
-      has("apps/worker/src/routes/geo.ts", /us_state_privacy_required/)
-  },
-  {
-    id: "Consent withdrawal removes loaded ad scripts",
-    pass:
-      has("apps/web/src/state/consent.tsx", /querySelectorAll\("script\[data-ofp-ad-script='1'\]"\)/) &&
-      has("apps/web/src/state/consent.tsx", /\.remove\(\)/)
-  },
-  {
-    id: "Ad metadata files staged for deployment",
-    pass:
-      exists("apps/web/public/ads.txt") &&
-      has("apps/web/public/ads.txt", /publisher-id|DIRECT|RESELLER|Format/i) &&
-      exists("apps/web/public/sellers.json") &&
-      has("apps/web/public/sellers.json", /"sellers"\s*:/)
-  }
-];
-
-let failed = 0;
-for (const check of checks) {
-  if (check.pass) {
-    console.log(`[PASS] ${check.id}`);
-  } else {
-    failed += 1;
-    console.error(`[FAIL] ${check.id}`);
+function report(ok, id, detail = "") {
+  console[ok ? "log" : "error"](`[${ok ? "PASS" : "FAIL"}] ${id}${detail ? ` - ${detail}` : ""}`);
+  if (!ok) {
+    failures += 1;
   }
 }
 
-if (failed > 0) {
+function runSuite(id, args) {
+  const result = spawnSync("npx", ["vitest", "run", "--config", "vitest.config.ts", ...args], {
+    cwd: path.join(root, "apps", "worker"),
+    stdio: "inherit",
+    shell: process.platform === "win32"
+  });
+  report(result.status === 0, id);
+}
+
+runSuite("Compliance suite (gates + real-schema exposure/attribution/RLS checks)", ["test/compliance"]);
+runSuite("Real-Postgres API and ingestion suites", ["test/db"]);
+
+// Security headers served by Cloudflare Pages.
+const headers = read("apps/web/public/_headers");
+const csp = /Content-Security-Policy:\s*(.+)/.exec(headers)?.[1] ?? "";
+const scriptSrc = /script-src([^;]*)/.exec(csp)?.[1]?.trim() ?? "";
+report(
+  scriptSrc.length > 0 && !/unsafe-inline|unsafe-eval|(^|\s)https:(\s|$)|\*/.test(scriptSrc),
+  "CSP script-src allows no inline/eval/wildcard sources",
+  `script-src ${scriptSrc || "(missing)"}`
+);
+
+// Queue consumers must dead-letter instead of dropping failed messages.
+const wrangler = read("apps/worker/wrangler.toml");
+const consumers = wrangler.split("[[queues.consumers]]").slice(1);
+report(
+  consumers.length > 0 && consumers.every((block) => /dead_letter_queue\s*=/.test(block) && /max_retries\s*=/.test(block)),
+  "Every queue consumer has max_retries and a dead_letter_queue"
+);
+
+// Production seed must not contain sample (fabricated) content.
+const seed = read("supabase/seed.sql");
+report(!/insert into (content_items|series_observations|filings)\b/i.test(seed), "seed.sql contains reference data only (no sample content)");
+
+// Monetization readiness: informative only.
+const adsLines = read("apps/web/public/ads.txt")
+  .split(/\r?\n/)
+  .map((line) => line.trim())
+  .filter((line) => line && !line.startsWith("#"));
+const sellers = JSON.parse(read("apps/web/public/sellers.json")).sellers ?? [];
+if (adsLines.length === 0 || sellers.length === 0) {
+  console.warn("[WARN] Monetization not configured: ads.txt has no seller lines and/or sellers.json has no sellers.");
+} else {
+  console.log(`[INFO] ads.txt seller lines: ${adsLines.length}, sellers.json entries: ${sellers.length}`);
+}
+
+if (failures > 0) {
+  console.error(`Release gate failed (${failures} check(s)).`);
   process.exit(1);
 }
+console.log("Release gate passed.");

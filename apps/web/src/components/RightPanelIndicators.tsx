@@ -1,17 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { IndicatorCard } from "../lib/api";
+import { indicatorDelta } from "../lib/indicatorFormat";
 
 type SortMode = "momentum" | "value" | "name";
-
-interface IndicatorCard {
-  series_id: string;
-  title: string;
-  latest_value: number;
-  period: string;
-  yoy: number;
-  sparkline: number[];
-  source: { name: string };
-  license: { attribution_text: string };
-}
 
 interface ChartPoint {
   x: number;
@@ -152,9 +143,8 @@ function formatAxisValue(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 2 });
 }
 
-function formatDelta(value: number): string {
-  const sign = value > 0 ? "+" : "";
-  return `${sign}${value.toFixed(2)}%`;
+function formatSigned(value: number, suffix: string): string {
+  return `${value > 0 ? "+" : ""}${value.toFixed(2)}${suffix}`;
 }
 
 function formatRelativeTime(iso: string | null): string {
@@ -229,7 +219,7 @@ function sortCards(cards: IndicatorCard[], mode: SortMode): IndicatorCard[] {
   const next = [...cards];
   switch (mode) {
     case "momentum":
-      next.sort((left, right) => Math.abs(right.yoy) - Math.abs(left.yoy));
+      next.sort((left, right) => Math.abs(indicatorDelta(right).value ?? 0) - Math.abs(indicatorDelta(left).value ?? 0));
       return next;
     case "value":
       next.sort((left, right) => right.latest_value - left.latest_value);
@@ -319,14 +309,18 @@ export function RightPanelIndicators({
 
   const latest = selected.sparkline[selected.sparkline.length - 1] ?? selected.latest_value;
   const baseline = selected.sparkline[0] ?? latest;
-  const movement = baseline === 0 ? 0 : ((latest - baseline) / Math.abs(baseline)) * 100;
+  // Change across the sparkline window: percentage points for % series, % otherwise.
+  const isPercentSeries = selected.units.trim() === "%";
+  const movement = isPercentSeries ? latest - baseline : baseline === 0 ? 0 : ((latest - baseline) / Math.abs(baseline)) * 100;
+  const movementSuffix = isPercentSeries ? " pp" : "%";
   const gradientId = `area-gradient-${selected.series_id.replace(/[^a-zA-Z0-9]/g, "")}`;
   const zeroY =
     scale.min <= 0 && scale.max >= 0 ? valueToY(0, scale, CHART_HEIGHT, CHART_PAD_Y) : null;
 
-  const avgYoy = sortedCards.reduce((sum, card) => sum + card.yoy, 0) / Math.max(sortedCards.length, 1);
-  const positiveShare =
-    (sortedCards.filter((card) => card.yoy >= 0).length / Math.max(sortedCards.length, 1)) * 100;
+  const yoyValues = sortedCards.map((card) => card.yoy).filter((value): value is number => typeof value === "number");
+  const avgYoy = yoyValues.length > 0 ? yoyValues.reduce((sum, value) => sum + value, 0) / yoyValues.length : null;
+  const deltas = sortedCards.map((card) => indicatorDelta(card)).filter((delta) => delta.value !== null);
+  const positiveShare = deltas.length > 0 ? (deltas.filter((delta) => delta.direction !== "down").length / deltas.length) * 100 : null;
   const spread = maxValue - minValue;
 
   return (
@@ -337,10 +331,10 @@ export function RightPanelIndicators({
             <p className="panel-kicker">Macro Dashboard</p>
             <h2 className="panel-title">Key Indicators</h2>
             <p className="indicator-sync-line">
-              {stale ? "Fallback snapshot" : "Live feed"} - updated {formatRelativeTime(generatedAt ?? null)}
+              {stale ? "Live data unavailable — last received" : "Live feed - updated"} {formatRelativeTime(generatedAt ?? null)}
             </p>
           </div>
-          <span className={`delta-chip ${movement >= 0 ? "positive" : "negative"}`}>{formatDelta(movement)}</span>
+          <span className={`delta-chip ${movement >= 0 ? "positive" : "negative"}`}>{formatSigned(movement, movementSuffix)}</span>
         </header>
 
         <div className="indicator-stat-strip" aria-label="Indicator quick stats">
@@ -349,12 +343,12 @@ export function RightPanelIndicators({
             <strong>{sortedCards.length}</strong>
           </div>
           <div>
-            <p>Avg YoY</p>
-            <strong>{avgYoy.toFixed(2)}%</strong>
+            <p>Avg YoY (level series)</p>
+            <strong>{avgYoy === null ? "n/a" : `${avgYoy.toFixed(2)}%`}</strong>
           </div>
           <div>
             <p>Positive</p>
-            <strong>{positiveShare.toFixed(0)}%</strong>
+            <strong>{positiveShare === null ? "n/a" : `${positiveShare.toFixed(0)}%`}</strong>
           </div>
           <div>
             <p>Range</p>
@@ -391,7 +385,9 @@ export function RightPanelIndicators({
             <h3>{selected.title}</h3>
             <p className="indicator-primary-value">{formatCompact(selected.latest_value)}</p>
             <p className="indicator-meta">Latest: {selected.latest_value.toLocaleString("en-US")} ({selected.period})</p>
-            <p className="indicator-meta">YoY: {selected.yoy.toFixed(2)}% (Derived by Open Finance Pulse)</p>
+            <p className="indicator-meta">
+              {typeof selected.yoy === "number" ? "YoY" : "Change vs previous"}: {indicatorDelta(selected).label} (derived by Open Finance Pulse)
+            </p>
           </div>
 
           <div className="indicator-chart-shell">
@@ -472,7 +468,7 @@ export function RightPanelIndicators({
               >
                 <span className="mini-title">{card.title}</span>
                 <span className="mini-value">{card.latest_value.toLocaleString("en-US")}</span>
-                <span className={`mini-yoy ${card.yoy >= 0 ? "up" : "down"}`}>{formatDelta(card.yoy)}</span>
+                <span className={`mini-yoy ${indicatorDelta(card).direction === "down" ? "down" : "up"}`}>{indicatorDelta(card).label}</span>
                 <svg viewBox="0 0 132 32" className="mini-spark" aria-hidden="true">
                   <g className="mini-spark-grid">
                     <line x1={MINI_CHART_PAD} y1="4" x2={MINI_CHART_WIDTH - MINI_CHART_PAD} y2="4" />

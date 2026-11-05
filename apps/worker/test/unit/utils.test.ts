@@ -25,7 +25,8 @@ describe("cors headers", () => {
   it("blocks unconfigured origins", () => {
     const request = createRequest("https://evil.example.com");
     const headers = corsHeaders(request, env);
-    expect(headers.get("access-control-allow-origin")).toBe("null");
+    expect(headers.get("access-control-allow-origin")).toBeNull();
+    expect(headers.get("access-control-allow-credentials")).toBeNull();
   });
 
   it("does not break error payload structure when using invalid origin", async () => {

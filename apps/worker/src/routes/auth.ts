@@ -1,37 +1,46 @@
-import { clientIp, errorJson, okJson, readJsonWithLimit, RequestBodyError } from "./utils";
-import type { Env } from "../types";
-import { checkRateLimit, rateLimitKey, type RateLimitConfig } from "../services/rateLimit";
+import { z } from "zod";
 import { cacheGetJson, cachePutJson } from "../services/cache";
+import { recordServerAudit } from "../services/audit";
 import { sha256Hex } from "../services/hash";
+import { describeError, logEvent } from "../services/log";
+import { checkRateLimit, rateLimitKey, type RateLimitConfig } from "../services/rateLimit";
+import { HttpError, clientIp, formatRetryAfterSeconds, okJson, parseOriginList, originOf, readValidatedBody } from "./utils";
+import type { Env } from "../types";
+
+/*
+ * Auth gateway in front of Supabase Auth.
+ *
+ * Note on threat model: the Supabase anon key is public, so Supabase Auth can
+ * also be called directly. The gateway's limits are therefore a convenience
+ * layer; the authoritative brute-force protection must be configured in
+ * Supabase itself (rate limits + CAPTCHA). The gateway forwards CAPTCHA tokens
+ * (`captcha_token`) so CAPTCHA can be enabled without bypassing the gateway.
+ */
 
 const AUTH_UPSTREAM_TIMEOUT_MS = 5_000;
 const AUTH_MAX_BODY_BYTES = 8_000;
-const AUTH_PASSWORD_MIN_LENGTH = 8;
-const AUTH_EMAIL_MAX_LENGTH = 254;
-const AUTH_TOKEN_MAX_LENGTH = 4_096;
-const AUTH_TOKEN_MIN_LENGTH = 12;
-const AUTH_REDIRECT_MAX_LENGTH = 2_048;
-const AUTH_UPSTREAM_RETRY_MS = [150, 320];
+/** Matches supabase/config.toml (minimum_password_length) and the web UI. */
+export const AUTH_NEW_PASSWORD_MIN_LENGTH = 10;
+const AUTH_UPSTREAM_RETRY_DELAYS_MS = [150, 320];
 const AUTH_CIRCUIT_FAILURE_THRESHOLD = 3;
 const AUTH_CIRCUIT_OPEN_MS = 8_000;
-const AUTH_CIRCUIT_STATE_VERSION = 1;
+const AUTH_CIRCUIT_STATE_VERSION = 2;
 const AUTH_CIRCUIT_STATE_TTL_SECONDS = 120;
-const AUTH_CIRCUIT_STATE_KEY_PREFIX = "auth:circuit";
+/** How long an isolate trusts its last read of the shared circuit state. */
+const AUTH_CIRCUIT_LOCAL_TTL_MS = 2_000;
 
-const AUTH_RATE_LIMITS: Record<
-  "login" | "signup" | "password_reset" | "password_change" | "logout",
-  RateLimitConfig
-> = {
+type SupabaseAuthAction = "login" | "signup" | "password_reset" | "password_change" | "logout";
+
+const AUTH_RATE_LIMITS: Record<SupabaseAuthAction, RateLimitConfig> = {
   login: { limit: 30, windowMs: 60 * 1000 },
   signup: { limit: 15, windowMs: 60 * 1000 },
   password_reset: { limit: 10, windowMs: 60 * 1000 },
   password_change: { limit: 20, windowMs: 60 * 1000 },
   logout: { limit: 120, windowMs: 60 * 1000 }
 };
-const AUTH_UPSTREAM_RETRIES: Record<
-  "login" | "signup" | "password_reset" | "password_change" | "logout",
-  number
-> = {
+
+/** Only idempotent-safe actions are retried on 5xx/network errors. */
+const AUTH_UPSTREAM_RETRIES: Record<SupabaseAuthAction, number> = {
   login: 0,
   signup: 0,
   password_reset: 1,
@@ -40,474 +49,188 @@ const AUTH_UPSTREAM_RETRIES: Record<
 };
 const AUTH_RETRYABLE_UPSTREAM_STATUS = new Set([500, 502, 503, 504]);
 
-type AuthCircuitState = "closed" | "open" | "half_open";
+// ---------------------------------------------------------------------------
+// Request schemas (passwords are never trimmed or otherwise altered)
+// ---------------------------------------------------------------------------
 
-interface AuthCircuitStateRecord {
-  state: AuthCircuitState;
+const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254)
+  .refine((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value), "invalid email");
+const existingPassword = z.string().min(1).max(1024);
+const newPassword = z
+  .string()
+  .min(AUTH_NEW_PASSWORD_MIN_LENGTH, `must be at least ${AUTH_NEW_PASSWORD_MIN_LENGTH} characters`)
+  .max(1024);
+const accessToken = z.string().trim().min(12).max(4096);
+const captchaToken = z.string().min(1).max(4096).optional();
+const redirectTo = z.string().max(2048).optional();
+
+const LoginSchema = z.object({ email, password: existingPassword, captcha_token: captchaToken });
+const SignupSchema = z.object({ email, password: newPassword, redirect_to: redirectTo, captcha_token: captchaToken });
+const ResetSchema = z.object({ email, redirect_to: redirectTo, captcha_token: captchaToken });
+const ChangeSchema = z
+  .object({
+    access_token: accessToken.optional(),
+    new_password: newPassword.optional(),
+    password: newPassword.optional(),
+    nonce: z.string().min(1).max(64).optional()
+  })
+  .refine((value) => value.new_password !== undefined || value.password !== undefined, {
+    message: "new_password is required",
+    path: ["new_password"]
+  });
+const LogoutSchema = z.object({ access_token: accessToken.optional() });
+
+// ---------------------------------------------------------------------------
+// Circuit breaker (shared via KV, written only on state transitions)
+// ---------------------------------------------------------------------------
+
+type CircuitState = "closed" | "open" | "half_open";
+
+interface CircuitRecord {
+  state: CircuitState;
   consecutiveFailures: number;
-  openedAtMs: number;
   nextRetryAtMs: number;
-  halfOpenInFlight: boolean;
-  updatedAtMs: number;
 }
 
-interface AuthGatewayPayload {
-  [key: string]: unknown;
+interface LocalCircuit extends CircuitRecord {
+  loadedAtMs: number;
+  /** True while this isolate has a half-open probe in flight. */
+  probeInFlight: boolean;
 }
 
-interface AuthGatewayRequest {
-  email?: unknown;
-  password?: unknown;
-  new_password?: unknown;
-  access_token?: unknown;
-  refresh_token?: unknown;
-  redirect_to?: unknown;
+const CLOSED: CircuitRecord = { state: "closed", consecutiveFailures: 0, nextRetryAtMs: 0 };
+// Keyed by KV binding so independent environments (and tests) never share state.
+const localCircuits = new WeakMap<object, Map<SupabaseAuthAction, LocalCircuit>>();
+const noKvScope = {};
+
+function circuitKey(action: SupabaseAuthAction): string {
+  return `auth:circuit:v${AUTH_CIRCUIT_STATE_VERSION}:${action}`;
 }
 
-type SupabaseAuthAction = keyof typeof AUTH_RATE_LIMITS;
-
-const authCircuitStateByAction: Record<SupabaseAuthAction, AuthCircuitStateRecord> = {
-  login: {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: 0
-  },
-  signup: {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: 0
-  },
-  password_reset: {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: 0
-  },
-  password_change: {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: 0
-  },
-  logout: {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: 0
+function localStore(env: Env): Map<SupabaseAuthAction, LocalCircuit> {
+  const scope = (env.OFP_KV as object | undefined) ?? noKvScope;
+  let store = localCircuits.get(scope);
+  if (!store) {
+    store = new Map();
+    localCircuits.set(scope, store);
   }
-};
-
-interface AuthCircuitCheckResult {
-  allowed: boolean;
-  retryAfterMs?: number;
+  return store;
 }
 
-interface PersistedAuthCircuitState {
-  schemaVersion: number;
-  state: AuthCircuitState;
-  consecutiveFailures: number;
-  openedAtMs: number;
-  nextRetryAtMs: number;
-  updatedAtMs: number;
-}
-
-function isRetryableStatus(status: number): boolean {
-  return AUTH_RETRYABLE_UPSTREAM_STATUS.has(status);
-}
-
-function buildAuthCircuitKey(action: SupabaseAuthAction): string {
-  return `${AUTH_CIRCUIT_STATE_KEY_PREFIX}:${action}`;
-}
-
-function defaultAuthCircuitState(): AuthCircuitStateRecord {
-  return {
-    state: "closed",
-    consecutiveFailures: 0,
-    openedAtMs: 0,
-    nextRetryAtMs: 0,
-    halfOpenInFlight: false,
-    updatedAtMs: Date.now()
-  };
-}
-
-function getAuthCircuitState(action: SupabaseAuthAction): AuthCircuitStateRecord {
-  return authCircuitStateByAction[action];
-}
-
-function sanitizePersistedCircuitState(raw: unknown): AuthCircuitStateRecord {
+function sanitizeCircuit(raw: unknown): CircuitRecord {
   if (!raw || typeof raw !== "object") {
-    return defaultAuthCircuitState();
+    return { ...CLOSED };
   }
-
-  const candidate = raw as Partial<PersistedAuthCircuitState>;
-  const validState = candidate.state === "open" || candidate.state === "half_open" || candidate.state === "closed"
-    ? candidate.state
-    : "closed";
-
-  const nextRetryAtMs = typeof candidate.nextRetryAtMs === "number" && Number.isFinite(candidate.nextRetryAtMs) && candidate.nextRetryAtMs > 0
-    ? candidate.nextRetryAtMs
-    : 0;
-  const openedAtMs = typeof candidate.openedAtMs === "number" && Number.isFinite(candidate.openedAtMs) && candidate.openedAtMs > 0
-    ? candidate.openedAtMs
-    : 0;
-  const consecutiveFailures = typeof candidate.consecutiveFailures === "number" && Number.isFinite(candidate.consecutiveFailures) && candidate.consecutiveFailures >= 0
-    ? candidate.consecutiveFailures
-    : 0;
-  const updatedAtMs = typeof candidate.updatedAtMs === "number" && Number.isFinite(candidate.updatedAtMs) && candidate.updatedAtMs > 0
-    ? candidate.updatedAtMs
-    : Date.now();
-
+  const candidate = raw as Partial<CircuitRecord>;
+  const state: CircuitState = candidate.state === "open" || candidate.state === "half_open" ? candidate.state : "closed";
+  const failures = Number(candidate.consecutiveFailures);
+  const retryAt = Number(candidate.nextRetryAtMs);
   return {
-    state: validState,
-    consecutiveFailures,
-    openedAtMs,
-    nextRetryAtMs,
-    halfOpenInFlight: false,
-    updatedAtMs
+    state,
+    consecutiveFailures: Number.isFinite(failures) && failures > 0 ? failures : 0,
+    nextRetryAtMs: Number.isFinite(retryAt) && retryAt > 0 ? retryAt : 0
   };
 }
 
-async function loadAuthCircuitState(
-  env: Env,
-  action: SupabaseAuthAction
-): Promise<AuthCircuitStateRecord> {
-  const localState = getAuthCircuitState(action);
-  if (!env.OFP_KV) {
-    return localState;
-  }
-
+async function loadCircuit(env: Env, action: SupabaseAuthAction): Promise<LocalCircuit> {
+  const store = localStore(env);
   const now = Date.now();
-  try {
-    const persisted = await cacheGetJson<PersistedAuthCircuitState>(env.OFP_KV, buildAuthCircuitKey(action));
-    if (!persisted || persisted.schemaVersion !== AUTH_CIRCUIT_STATE_VERSION) {
-      localState.state = "closed";
-      localState.consecutiveFailures = 0;
-      localState.openedAtMs = 0;
-      localState.nextRetryAtMs = 0;
-      localState.halfOpenInFlight = false;
-      localState.updatedAtMs = now;
-      return localState;
-    }
-
-    const sanitized = sanitizePersistedCircuitState(persisted);
-    localState.state = sanitized.state;
-    localState.consecutiveFailures = sanitized.consecutiveFailures;
-    localState.openedAtMs = sanitized.openedAtMs;
-    localState.nextRetryAtMs = sanitized.nextRetryAtMs;
-    localState.halfOpenInFlight = sanitized.halfOpenInFlight;
-    localState.updatedAtMs = sanitized.updatedAtMs;
-    return localState;
-  } catch {
-    return localState;
+  const cached = store.get(action);
+  if (cached && (now - cached.loadedAtMs < AUTH_CIRCUIT_LOCAL_TTL_MS || !env.OFP_KV)) {
+    return cached;
   }
+  let shared: CircuitRecord = { ...CLOSED };
+  if (env.OFP_KV) {
+    try {
+      shared = sanitizeCircuit(await cacheGetJson<CircuitRecord>(env.OFP_KV, circuitKey(action)));
+    } catch (error) {
+      logEvent("warn", "auth_circuit_read_failed", { action, ...describeError(error) });
+    }
+  }
+  const local: LocalCircuit = { ...shared, loadedAtMs: now, probeInFlight: cached?.probeInFlight ?? false };
+  store.set(action, local);
+  return local;
 }
 
-async function persistAuthCircuitState(
-  env: Env,
-  action: SupabaseAuthAction,
-  state: AuthCircuitStateRecord
-): Promise<void> {
-  if (!env.OFP_KV) {
+async function saveCircuit(env: Env, action: SupabaseAuthAction, next: CircuitRecord): Promise<void> {
+  const local = await loadCircuit(env, action);
+  const changed =
+    local.state !== next.state ||
+    local.consecutiveFailures !== next.consecutiveFailures ||
+    local.nextRetryAtMs !== next.nextRetryAtMs;
+  Object.assign(local, next, { loadedAtMs: Date.now() });
+  if (!changed || !env.OFP_KV) {
     return;
   }
-  const payload: PersistedAuthCircuitState = {
-    schemaVersion: AUTH_CIRCUIT_STATE_VERSION,
-    state: state.state,
-    consecutiveFailures: state.consecutiveFailures,
-    openedAtMs: state.openedAtMs,
-    nextRetryAtMs: state.nextRetryAtMs,
-    updatedAtMs: Date.now()
-  };
-
   try {
-    await cachePutJson(env.OFP_KV, buildAuthCircuitKey(action), payload, AUTH_CIRCUIT_STATE_TTL_SECONDS);
-  } catch {
-    // Fall back to process memory on cache errors.
+    await cachePutJson(env.OFP_KV, circuitKey(action), next, AUTH_CIRCUIT_STATE_TTL_SECONDS);
+  } catch (error) {
+    logEvent("warn", "auth_circuit_write_failed", { action, ...describeError(error) });
   }
 }
 
-async function checkAuthCircuit(env: Env, action: SupabaseAuthAction): Promise<AuthCircuitCheckResult> {
-  const state = await loadAuthCircuitState(env, action);
+/** Returns whether a call may proceed and, if it is the half-open probe, marks it. */
+async function acquireCircuit(env: Env, action: SupabaseAuthAction): Promise<{ allowed: boolean; retryAfterMs: number; probe: boolean }> {
+  const circuit = await loadCircuit(env, action);
   const now = Date.now();
-  let stateChanged = false;
-
-  if (state.state === "open") {
-    if (now < state.nextRetryAtMs) {
-      return { allowed: false, retryAfterMs: state.nextRetryAtMs - now };
-    }
-    state.state = "half_open";
-    stateChanged = true;
+  if (circuit.state === "closed") {
+    return { allowed: true, retryAfterMs: 0, probe: false };
   }
-
-  if (state.state === "half_open") {
-    if (state.halfOpenInFlight) {
-      return { allowed: false, retryAfterMs: Math.max(1, state.nextRetryAtMs - now) };
-    }
-    state.halfOpenInFlight = true;
-    state.nextRetryAtMs = now + AUTH_CIRCUIT_OPEN_MS;
-    stateChanged = true;
+  if (now < circuit.nextRetryAtMs || circuit.probeInFlight) {
+    return { allowed: false, retryAfterMs: Math.max(1, circuit.nextRetryAtMs - now), probe: false };
   }
-
-  if (!stateChanged) {
-    return { allowed: true };
-  }
-
-  state.updatedAtMs = now;
-  await persistAuthCircuitState(env, action, state);
-  return { allowed: true };
+  circuit.probeInFlight = true;
+  await saveCircuit(env, action, { state: "half_open", consecutiveFailures: circuit.consecutiveFailures, nextRetryAtMs: now + AUTH_CIRCUIT_OPEN_MS });
+  return { allowed: true, retryAfterMs: 0, probe: true };
 }
 
-async function failAuthCircuit(env: Env, action: SupabaseAuthAction): Promise<void> {
-  const state = await loadAuthCircuitState(env, action);
-  state.halfOpenInFlight = false;
-
-  if (state.state === "half_open") {
-    state.state = "open";
-    const now = Date.now();
-    state.openedAtMs = now;
-    state.nextRetryAtMs = now + AUTH_CIRCUIT_OPEN_MS;
-  } else {
-    state.consecutiveFailures += 1;
-    if (state.consecutiveFailures >= AUTH_CIRCUIT_FAILURE_THRESHOLD) {
-      state.state = "open";
-      const now = Date.now();
-      state.openedAtMs = now;
-      state.nextRetryAtMs = now + AUTH_CIRCUIT_OPEN_MS;
-    } else {
-      state.state = "closed";
-    }
-  }
-
-  state.updatedAtMs = Date.now();
-  await persistAuthCircuitState(env, action, state);
+async function recordCircuitSuccess(env: Env, action: SupabaseAuthAction): Promise<void> {
+  const circuit = await loadCircuit(env, action);
+  circuit.probeInFlight = false;
+  await saveCircuit(env, action, { ...CLOSED });
 }
 
-async function closeAuthCircuit(env: Env, action: SupabaseAuthAction): Promise<void> {
-  const state = await loadAuthCircuitState(env, action);
-  state.halfOpenInFlight = false;
-  state.state = "closed";
-  state.consecutiveFailures = 0;
-  state.openedAtMs = 0;
-  state.nextRetryAtMs = 0;
-  state.updatedAtMs = Date.now();
-
-  await persistAuthCircuitState(env, action, state);
+async function recordCircuitFailure(env: Env, action: SupabaseAuthAction): Promise<void> {
+  const circuit = await loadCircuit(env, action);
+  circuit.probeInFlight = false;
+  const now = Date.now();
+  if (circuit.state === "half_open") {
+    await saveCircuit(env, action, { state: "open", consecutiveFailures: circuit.consecutiveFailures, nextRetryAtMs: now + AUTH_CIRCUIT_OPEN_MS });
+    return;
+  }
+  const failures = circuit.consecutiveFailures + 1;
+  await saveCircuit(
+    env,
+    action,
+    failures >= AUTH_CIRCUIT_FAILURE_THRESHOLD
+      ? { state: "open", consecutiveFailures: failures, nextRetryAtMs: now + AUTH_CIRCUIT_OPEN_MS }
+      : { state: "closed", consecutiveFailures: failures, nextRetryAtMs: 0 }
+  );
 }
 
-async function releaseAuthCircuitProbe(env: Env, action: SupabaseAuthAction): Promise<void> {
-  const state = await loadAuthCircuitState(env, action);
-  state.halfOpenInFlight = false;
-  state.updatedAtMs = Date.now();
-  await persistAuthCircuitState(env, action, state);
+// ---------------------------------------------------------------------------
+// Upstream calls
+// ---------------------------------------------------------------------------
+
+type UpstreamBody = Record<string, unknown>;
+
+interface UpstreamResult {
+  ok: boolean;
+  status: number;
+  body: UpstreamBody;
 }
 
-class AuthGatewayError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-    this.name = "AuthGatewayError";
-  }
-}
-
-function normalizeEmail(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim().toLowerCase();
-}
-
-function normalizeToken(value: unknown): string {
-  if (typeof value !== "string") {
-    return "";
-  }
-  return value.trim();
-}
-
-function normalizeOrigin(input?: string | null): string | null {
-  if (!input) {
-    return null;
-  }
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return null;
-  }
-  try {
-    const url = new URL(trimmed);
-    return `${url.protocol}//${url.host}`.toLowerCase();
-  } catch {
-    return trimmed.toLowerCase();
-  }
-}
-
-function allowedRedirectOrigins(env: Env): string[] {
-  const raw = env.AUTH_ALLOWED_REDIRECT_ORIGINS?.trim() || env.ALLOWED_ORIGINS?.trim() || "";
-  if (!raw) {
-    return [];
-  }
-  return raw
-    .split(",")
-    .map((entry) => normalizeOrigin(entry))
-    .filter((entry): entry is string => Boolean(entry));
-}
-
-function normalizeRedirect(input: unknown, env: Env): string | undefined {
-  if (typeof input !== "string") {
-    return undefined;
-  }
-  const value = input.trim();
-  if (!value || value.length > AUTH_REDIRECT_MAX_LENGTH) {
-    return undefined;
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(value);
-  } catch {
-    return undefined;
-  }
-  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-    return undefined;
-  }
-  const origin = normalizeOrigin(parsed.toString());
-  if (!origin) {
-    return undefined;
-  }
-  const allowed = allowedRedirectOrigins(env);
-  if (allowed.length === 0 || !allowed.includes(origin)) {
-    return undefined;
-  }
-  return parsed.toString();
-}
-
-function isValidEmail(value: string): boolean {
-  return value.length > 0 && value.length <= AUTH_EMAIL_MAX_LENGTH && value.includes("@") && value.includes(".");
-}
-
-function isValidToken(value: string): boolean {
-  return value.length >= AUTH_TOKEN_MIN_LENGTH && value.length <= AUTH_TOKEN_MAX_LENGTH;
-}
-
-function isValidPassword(value: string): boolean {
-  return value.length >= AUTH_PASSWORD_MIN_LENGTH;
-}
-
-async function hashRateLimitSeed(value: string): Promise<string> {
-  const normalized = normalizeToken(value);
-  if (!normalized) {
-    return "";
-  }
-  const digest = await sha256Hex(normalized);
-  return `h:${digest}`;
-}
-
-function buildMessage(payload: unknown, defaultMessage: string): string {
-  if (!payload || typeof payload !== "object") {
-    return defaultMessage;
-  }
-
-  const typed = payload as Record<string, unknown>;
-
-  if (typeof typed.error_description === "string" && typed.error_description.trim().length > 0) {
-    return typed.error_description;
-  }
-  if (typeof typed.error === "string" && typed.error.trim().length > 0) {
-    return typed.error;
-  }
-  if (typeof typed.msg === "string" && typed.msg.trim().length > 0) {
-    return typed.msg;
-  }
-  if (typeof typed.message === "string" && typed.message.trim().length > 0) {
-    return typed.message;
-  }
-
-  return defaultMessage;
-}
-
-function makeAuthHeaders(apiKey: string, accessToken?: string): HeadersInit {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    apikey: apiKey
-  };
-
-  if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
-  } else {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
-
-  return headers;
-}
-
-function extractAuthConfig(env: Env): { baseUrl: string; apiKey: string } {
+function authConfig(env: Env): { baseUrl: string; apiKey: string } {
   const baseUrl = env.SUPABASE_URL?.trim();
   const apiKey = env.SUPABASE_ANON_KEY?.trim();
-
-  if (!baseUrl) {
-    throw new AuthGatewayError(503, "SUPABASE_URL is not configured.");
+  if (!baseUrl || !apiKey) {
+    throw new HttpError(503, "Authentication is not configured.");
   }
-  if (!apiKey) {
-    throw new AuthGatewayError(503, "SUPABASE_ANON_KEY is not configured.");
-  }
-
   return { baseUrl, apiKey };
-}
-
-function formatRateLimitSeconds(milliseconds: number): string {
-  return String(Math.max(1, Math.ceil(milliseconds / 1000)));
-}
-
-async function enforceRateLimit(
-  request: Request,
-  env: Env,
-  action: SupabaseAuthAction,
-  keySeed: string
-): Promise<null | Response> {
-  if (!env.RATE_LIMITER_DO) {
-    return errorJson(request, env, 503, "Rate limiter is not configured.");
-  }
-
-  const config = AUTH_RATE_LIMITS[action];
-  const networkSeed = (await hashRateLimitSeed(clientIp(request))) || "unknown";
-  const networkKey = rateLimitKey(`auth_${action}`, networkSeed, "ip");
-  const networkResult = await checkRateLimit(env.OFP_KV, networkKey, config, Date.now(), env.RATE_LIMITER_DO);
-  if (!networkResult.allowed) {
-    return errorJson(
-      request,
-      env,
-      429,
-      `Too many ${action} attempts from this network. Retry in ${formatRateLimitSeconds(networkResult.retryAfterMs)} seconds.`,
-      { "retry-after": formatRateLimitSeconds(networkResult.retryAfterMs) }
-    );
-  }
-
-  if (keySeed) {
-    const accountSeed = await hashRateLimitSeed(keySeed);
-    if (accountSeed) {
-      const accountKey = rateLimitKey(`auth_${action}`, accountSeed, "account");
-      const accountResult = await checkRateLimit(env.OFP_KV, accountKey, config, Date.now(), env.RATE_LIMITER_DO);
-      if (!accountResult.allowed) {
-        return errorJson(
-          request,
-          env,
-          429,
-          `Too many ${action} attempts for this account. Retry in ${formatRateLimitSeconds(accountResult.retryAfterMs)} seconds.`,
-          { "retry-after": formatRateLimitSeconds(accountResult.retryAfterMs) }
-        );
-      }
-    }
-  }
-
-  return null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -516,41 +239,34 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-async function callSupabaseAuthAttempt(
+async function callOnce(
   env: Env,
   endpoint: string,
   method: string,
-  payload: AuthGatewayPayload,
-  accessToken?: string,
-  query?: Record<string, string>
-): Promise<{ ok: boolean; status: number; body: AuthGatewayPayload }> {
-  const config = extractAuthConfig(env);
+  payload: UpstreamBody,
+  bearer: string | undefined,
+  query: Record<string, string> | undefined
+): Promise<UpstreamResult> {
+  const config = authConfig(env);
+  const url = new URL(`${config.baseUrl}/auth/v1/${endpoint}`);
+  for (const [key, value] of Object.entries(query ?? {})) {
+    url.searchParams.set(key, value);
+  }
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AUTH_UPSTREAM_TIMEOUT_MS);
-  const requestUrl = new URL(`${config.baseUrl}/auth/v1/${endpoint}`);
-
-  if (query) {
-    for (const [key, value] of Object.entries(query)) {
-      if (value) {
-        requestUrl.searchParams.set(key, value);
-      }
-    }
-  }
-
   try {
-    const response = await fetch(requestUrl.toString(), {
+    const response = await fetch(url.toString(), {
       method,
-      headers: makeAuthHeaders(config.apiKey, accessToken),
+      headers: {
+        "content-type": "application/json",
+        apikey: config.apiKey,
+        Authorization: `Bearer ${bearer ?? config.apiKey}`
+      },
       body: JSON.stringify(payload),
       signal: controller.signal
     });
-
-    const body = (await response.json().catch(() => ({} as unknown))) as AuthGatewayPayload;
-    return {
-      ok: response.ok,
-      status: response.status,
-      body
-    };
+    const body = (await response.json().catch(() => ({}))) as UpstreamBody;
+    return { ok: response.ok, status: response.status, body: body && typeof body === "object" ? body : {} };
   } finally {
     clearTimeout(timeoutId);
   }
@@ -558,341 +274,235 @@ async function callSupabaseAuthAttempt(
 
 async function callSupabaseAuth(
   env: Env,
+  action: SupabaseAuthAction,
   endpoint: string,
   method: string,
-  payload: AuthGatewayPayload,
-  accessToken: string | undefined,
-  action: SupabaseAuthAction,
-  query?: Record<string, string>
-): Promise<{ ok: boolean; status: number; body: AuthGatewayPayload }> {
-  const maxRetries = AUTH_UPSTREAM_RETRIES[action];
-  const circuitCheck = await checkAuthCircuit(env, action);
-  if (!circuitCheck.allowed) {
-    const seconds = Math.max(1, Math.ceil((circuitCheck.retryAfterMs ?? AUTH_CIRCUIT_OPEN_MS) / 1000));
-    throw new AuthGatewayError(503, `Authentication gateway is temporarily unavailable. Retry in ${seconds} seconds.`);
+  payload: UpstreamBody,
+  options: { bearer?: string; query?: Record<string, string> } = {}
+): Promise<UpstreamResult> {
+  const gate = await acquireCircuit(env, action);
+  if (!gate.allowed) {
+    const seconds = formatRetryAfterSeconds(gate.retryAfterMs);
+    throw new HttpError(503, `Authentication gateway is temporarily unavailable. Retry in ${seconds} seconds.`, { "retry-after": seconds });
   }
 
-  try {
-    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
-      try {
-        const response = await callSupabaseAuthAttempt(env, endpoint, method, payload, accessToken, query);
-        if (response.ok) {
-          await closeAuthCircuit(env, action);
-          return response;
-        }
-
-        if (!isRetryableStatus(response.status)) {
-          await closeAuthCircuit(env, action);
-          return response;
-        }
-
-        if (attempt === maxRetries) {
-          await failAuthCircuit(env, action);
-          return response;
-        }
-
-        const retryDelay = AUTH_UPSTREAM_RETRY_MS[Math.max(0, attempt)] ?? 500;
-        await sleep(retryDelay);
-      } catch (error) {
-        if (error instanceof AuthGatewayError) {
-          throw error;
-        }
-
-        const isTimeout = error instanceof Error && error.name === "AbortError";
-        if (isTimeout && attempt === maxRetries) {
-          await failAuthCircuit(env, action);
-          throw new AuthGatewayError(504, "Authentication service timed out.");
-        }
-
-        if (!isTimeout && attempt === maxRetries) {
-          await failAuthCircuit(env, action);
-          throw new AuthGatewayError(503, "Authentication upstream is unavailable.");
-        }
-
-        if (!isTimeout) {
-          await failAuthCircuit(env, action);
-          const retryDelay = AUTH_UPSTREAM_RETRY_MS[Math.max(0, attempt)] ?? 500;
-          await sleep(retryDelay);
-          continue;
-        }
-
-        const retryDelay = AUTH_UPSTREAM_RETRY_MS[Math.max(0, attempt)] ?? 500;
-        await sleep(retryDelay);
+  const maxRetries = AUTH_UPSTREAM_RETRIES[action];
+  for (let attempt = 0; ; attempt += 1) {
+    const isLastAttempt = attempt >= maxRetries;
+    try {
+      const result = await callOnce(env, endpoint, method, payload, options.bearer, options.query);
+      if (!AUTH_RETRYABLE_UPSTREAM_STATUS.has(result.status)) {
+        // Any non-5xx answer (including 4xx such as wrong password) means the upstream is healthy.
+        await recordCircuitSuccess(env, action);
+        return result;
+      }
+      if (isLastAttempt) {
+        await recordCircuitFailure(env, action);
+        return result;
+      }
+    } catch (error) {
+      if (error instanceof HttpError) {
+        throw error;
+      }
+      if (isLastAttempt) {
+        await recordCircuitFailure(env, action);
+        const timedOut = error instanceof Error && error.name === "AbortError";
+        logEvent("warn", "auth_upstream_failed", { action, timed_out: timedOut, ...describeError(error) });
+        throw timedOut
+          ? new HttpError(504, "Authentication service timed out.")
+          : new HttpError(503, "Authentication upstream is unavailable.");
       }
     }
-    throw new AuthGatewayError(503, "Authentication upstream is unavailable.");
-  } finally {
-    await releaseAuthCircuitProbe(env, action);
+    await sleep(AUTH_UPSTREAM_RETRY_DELAYS_MS[attempt] ?? 500);
   }
 }
 
-function extractAuthToken(payload: AuthGatewayPayload): { access_token?: string; refresh_token?: string } {
-  const accessToken = typeof payload.access_token === "string" ? payload.access_token : undefined;
-  const refreshToken = typeof payload.refresh_token === "string" ? payload.refresh_token : undefined;
-
-  if (accessToken && refreshToken) {
-    return { access_token: accessToken, refresh_token: refreshToken };
-  }
-
-  const session = payload.session;
-  if (session && typeof session === "object" && session !== null) {
-    const nested = session as Record<string, unknown>;
-    const nestedAccessToken = typeof nested.access_token === "string" ? nested.access_token : undefined;
-    const nestedRefreshToken = typeof nested.refresh_token === "string" ? nested.refresh_token : undefined;
-    return {
-      access_token: nestedAccessToken,
-      refresh_token: nestedRefreshToken
-    };
-  }
-
-  return {};
-}
-
-function withSuccessDefaults(payload: AuthGatewayPayload): AuthGatewayPayload {
-  const normalized = extractAuthToken(payload);
-  if (normalized.access_token && normalized.refresh_token) {
-    return payload;
-  }
-
-  if (payload.session && typeof payload.session === "object" && payload.session !== null) {
-    const session = payload.session as Record<string, unknown>;
-    if (typeof session.access_token === "string" && !payload.access_token) {
-      return { ...payload, access_token: session.access_token };
-    }
-    if (typeof session.refresh_token === "string" && !payload.refresh_token) {
-      return { ...payload, refresh_token: session.refresh_token };
+function upstreamMessage(body: UpstreamBody, fallback: string): string {
+  for (const key of ["error_description", "msg", "message", "error"]) {
+    const value = body[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
     }
   }
-
-  return payload;
+  return fallback;
 }
 
-async function readAuthRequest(request: Request): Promise<AuthGatewayRequest> {
+function upstreamError(result: UpstreamResult, fallback: string): HttpError {
+  return new HttpError(result.status >= 500 ? 502 : result.status, upstreamMessage(result.body, fallback));
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function hashSeed(value: string): Promise<string> {
+  return `h:${await sha256Hex(value)}`;
+}
+
+async function enforceRateLimit(request: Request, env: Env, action: SupabaseAuthAction, accountSeed: string): Promise<void> {
+  if (!env.RATE_LIMITER_DO) {
+    throw new HttpError(503, "Rate limiter is not configured.");
+  }
+  const config = AUTH_RATE_LIMITS[action];
+  const checks: Array<[string, string]> = [
+    [rateLimitKey(`auth_${action}`, await hashSeed(clientIp(request)), "ip"), "from this network"],
+    [rateLimitKey(`auth_${action}`, await hashSeed(accountSeed), "account"), "for this account"]
+  ];
+  for (const [key, label] of checks) {
+    const result = await checkRateLimit(env.OFP_KV, key, config, Date.now(), env.RATE_LIMITER_DO);
+    if (!result.allowed) {
+      const seconds = formatRetryAfterSeconds(result.retryAfterMs);
+      throw new HttpError(429, `Too many ${action} attempts ${label}. Retry in ${seconds} seconds.`, { "retry-after": seconds });
+    }
+  }
+}
+
+function validatedRedirect(value: string | undefined, env: Env): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  let parsed: URL;
   try {
-    return await readJsonWithLimit<AuthGatewayRequest>(request, AUTH_MAX_BODY_BYTES);
-  } catch (error) {
-    if (error instanceof RequestBodyError) {
-      throw new AuthGatewayError(error.status, error.message);
-    }
-    if (error instanceof AuthGatewayError) {
-      throw error;
-    }
-    throw new AuthGatewayError(400, "Invalid JSON body.");
+    parsed = new URL(value.trim());
+  } catch {
+    throw new HttpError(400, "Invalid request body. redirect_to: must be an absolute URL");
+  }
+  const origin = originOf(parsed.toString());
+  const allowed = parseOriginList(env.AUTH_ALLOWED_REDIRECT_ORIGINS?.trim() || env.ALLOWED_ORIGINS);
+  if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || !origin || !allowed.includes(origin)) {
+    throw new HttpError(400, "Invalid request body. redirect_to: origin is not allowed");
+  }
+  return parsed.toString();
+}
+
+function securityMeta(captcha: string | undefined): UpstreamBody {
+  return captcha ? { gotrue_meta_security: { captcha_token: captcha } } : {};
+}
+
+function bearerFromHeader(request: Request): string | undefined {
+  const header = request.headers.get("authorization")?.trim();
+  const match = header ? /^Bearer\s+(\S+)$/i.exec(header) : null;
+  return match?.[1];
+}
+
+/** Flattens `session.{access,refresh}_token` to the top level for clients. */
+function withTopLevelTokens(body: UpstreamBody): UpstreamBody {
+  const session = body.session && typeof body.session === "object" ? (body.session as UpstreamBody) : null;
+  return {
+    ...body,
+    ...(typeof body.access_token !== "string" && typeof session?.access_token === "string" ? { access_token: session.access_token } : {}),
+    ...(typeof body.refresh_token !== "string" && typeof session?.refresh_token === "string" ? { refresh_token: session.refresh_token } : {})
+  };
+}
+
+function userIdFrom(body: UpstreamBody): string | null {
+  const user = body.user && typeof body.user === "object" ? (body.user as UpstreamBody) : body;
+  return typeof user.id === "string" ? user.id : null;
+}
+
+/** `sub` of a token that the upstream has just accepted (used for audit attribution only). */
+function subjectOfAcceptedToken(token: string): string | null {
+  const payload = token.split(".")[1];
+  if (!payload) {
+    return null;
+  }
+  try {
+    const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { sub?: unknown };
+    return typeof decoded.sub === "string" ? decoded.sub : null;
+  } catch {
+    return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Handlers
+// ---------------------------------------------------------------------------
 
 export async function handleAuthLogin(request: Request, env: Env): Promise<Response> {
-  try {
-    const payload = await readAuthRequest(request);
-    const email = normalizeEmail(payload.email);
-    const password = normalizeToken(payload.password);
-
-    if (!isValidEmail(email) || !isValidPassword(password)) {
-      return errorJson(request, env, 400, "Invalid login payload.");
-    }
-
-    const rateLimited = await enforceRateLimit(request, env, "login", email);
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    const upstream = await callSupabaseAuth(
-      env,
-      "token?grant_type=password",
-      "POST",
-      { email, password },
-      undefined,
-      "login"
-    );
-    if (!upstream.ok) {
-      return errorJson(
-        request,
-        env,
-        upstream.status >= 500 ? 502 : upstream.status,
-        buildMessage(upstream.body, "Invalid credentials.")
-      );
-    }
-
-    return okJson(request, env, withSuccessDefaults({ ...upstream.body, ...extractAuthToken(upstream.body) }));
-  } catch (error) {
-    if (error instanceof AuthGatewayError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return errorJson(request, env, 504, "Authentication service timed out.");
-    }
-    return errorJson(request, env, 500, "Unable to authenticate.");
+  const body = await readValidatedBody(request, LoginSchema, AUTH_MAX_BODY_BYTES);
+  await enforceRateLimit(request, env, "login", body.email);
+  const result = await callSupabaseAuth(env, "login", "token?grant_type=password", "POST", {
+    email: body.email,
+    password: body.password,
+    ...securityMeta(body.captcha_token)
+  });
+  if (!result.ok) {
+    throw upstreamError(result, "Invalid credentials.");
   }
+  await recordServerAudit(env, userIdFrom(result.body), "login", "success", "Signed in via gateway.");
+  return okJson(request, env, withTopLevelTokens(result.body));
 }
 
 export async function handleAuthSignup(request: Request, env: Env): Promise<Response> {
-  try {
-    const payload = await readAuthRequest(request);
-    const email = normalizeEmail(payload.email);
-    const password = normalizeToken(payload.password);
-    const redirectTo = normalizeRedirect(payload.redirect_to, env);
-
-    if (!isValidEmail(email) || !isValidPassword(password) || (payload.redirect_to !== undefined && !redirectTo)) {
-      return errorJson(request, env, 400, "Invalid signup payload.");
-    }
-
-    const rateLimited = await enforceRateLimit(request, env, "signup", email);
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    const body: AuthGatewayPayload = { email, password };
-    const upstream = await callSupabaseAuth(
-      env,
-      "signup",
-      "POST",
-      body,
-      undefined,
-      "signup",
-      redirectTo ? { redirect_to: redirectTo } : undefined
-    );
-    if (!upstream.ok) {
-      return errorJson(
-        request,
-        env,
-        upstream.status >= 500 ? 502 : upstream.status,
-        buildMessage(upstream.body, "Sign up request failed.")
-      );
-    }
-
-    return okJson(request, env, withSuccessDefaults(withSuccessDefaults(upstream.body)));
-  } catch (error) {
-    if (error instanceof AuthGatewayError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return errorJson(request, env, 504, "Authentication service timed out.");
-    }
-    return errorJson(request, env, 500, "Unable to sign up.");
+  const body = await readValidatedBody(request, SignupSchema, AUTH_MAX_BODY_BYTES);
+  const redirect = validatedRedirect(body.redirect_to, env);
+  await enforceRateLimit(request, env, "signup", body.email);
+  const result = await callSupabaseAuth(
+    env,
+    "signup",
+    "signup",
+    "POST",
+    { email: body.email, password: body.password, ...securityMeta(body.captcha_token) },
+    { query: redirect ? { redirect_to: redirect } : undefined }
+  );
+  if (!result.ok) {
+    throw upstreamError(result, "Sign up request failed.");
   }
+  await recordServerAudit(env, userIdFrom(result.body), "signup", "success", "Account created via gateway.");
+  return okJson(request, env, withTopLevelTokens(result.body));
 }
 
 export async function handleAuthPasswordReset(request: Request, env: Env): Promise<Response> {
-  try {
-    const payload = await readAuthRequest(request);
-    const email = normalizeEmail(payload.email);
-    const redirectTo = normalizeRedirect(payload.redirect_to, env);
-
-    if (!isValidEmail(email) || (payload.redirect_to !== undefined && !redirectTo)) {
-      return errorJson(request, env, 400, "Invalid password-reset payload.");
-    }
-
-    const rateLimited = await enforceRateLimit(request, env, "password_reset", email);
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    const body: AuthGatewayPayload = { email };
-    const upstream = await callSupabaseAuth(
-      env,
-      "recover",
-      "POST",
-      body,
-      undefined,
-      "password_reset",
-      redirectTo ? { redirect_to: redirectTo } : undefined
-    );
-    if (!upstream.ok) {
-      return errorJson(
-        request,
-        env,
-        upstream.status >= 500 ? 502 : upstream.status,
-        buildMessage(upstream.body, "Password reset request failed.")
-      );
-    }
-
-    return okJson(request, env, { ok: true });
-  } catch (error) {
-    if (error instanceof AuthGatewayError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return errorJson(request, env, 504, "Authentication service timed out.");
-    }
-    return errorJson(request, env, 500, "Unable to start password reset.");
+  const body = await readValidatedBody(request, ResetSchema, AUTH_MAX_BODY_BYTES);
+  const redirect = validatedRedirect(body.redirect_to, env);
+  await enforceRateLimit(request, env, "password_reset", body.email);
+  const result = await callSupabaseAuth(
+    env,
+    "password_reset",
+    "recover",
+    "POST",
+    { email: body.email, ...securityMeta(body.captcha_token) },
+    { query: redirect ? { redirect_to: redirect } : undefined }
+  );
+  if (!result.ok) {
+    throw upstreamError(result, "Password reset request failed.");
   }
+  return okJson(request, env, { ok: true });
 }
 
 export async function handleAuthPasswordChange(request: Request, env: Env): Promise<Response> {
-  try {
-    const payload = await readAuthRequest(request);
-    const accessToken = normalizeToken(payload.access_token);
-    const password = normalizeToken(payload.new_password ?? payload.password);
-
-    if (!isValidToken(accessToken) || !isValidPassword(password)) {
-      return errorJson(request, env, 400, "Invalid password change payload.");
-    }
-
-    const rateLimited = await enforceRateLimit(request, env, "password_change", accessToken);
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    const upstream = await callSupabaseAuth(
-      env,
-      "user",
-      "PATCH",
-      { password },
-      accessToken,
-      "password_change"
-    );
-    if (!upstream.ok) {
-      return errorJson(
-        request,
-        env,
-        upstream.status >= 500 ? 502 : upstream.status,
-        buildMessage(upstream.body, "Password change failed.")
-      );
-    }
-
-    return okJson(request, env, upstream.body as AuthGatewayPayload);
-  } catch (error) {
-    if (error instanceof AuthGatewayError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return errorJson(request, env, 504, "Authentication service timed out.");
-    }
-    return errorJson(request, env, 500, "Unable to change password.");
+  const body = await readValidatedBody(request, ChangeSchema, AUTH_MAX_BODY_BYTES);
+  const token = bearerFromHeader(request) ?? body.access_token;
+  if (!token) {
+    throw new HttpError(401, "Missing bearer token.");
   }
+  await enforceRateLimit(request, env, "password_change", token);
+  const result = await callSupabaseAuth(
+    env,
+    "password_change",
+    "user",
+    "PUT",
+    { password: body.new_password ?? body.password, ...(body.nonce ? { nonce: body.nonce } : {}) },
+    { bearer: token }
+  );
+  if (!result.ok) {
+    throw upstreamError(result, "Password change failed.");
+  }
+  await recordServerAudit(env, userIdFrom(result.body), "password_change", "success", "Password changed via gateway.");
+  return okJson(request, env, { ok: true, user_id: userIdFrom(result.body) });
 }
 
 export async function handleAuthLogout(request: Request, env: Env): Promise<Response> {
-  try {
-    const payload = await readAuthRequest(request);
-    const accessToken = normalizeToken(payload.access_token);
-    if (!isValidToken(accessToken)) {
-      return errorJson(request, env, 400, "Invalid logout payload.");
-    }
-
-    const rateLimited = await enforceRateLimit(request, env, "logout", accessToken);
-    if (rateLimited) {
-      return rateLimited;
-    }
-
-    const upstream = await callSupabaseAuth(env, "logout", "POST", {}, accessToken, "logout");
-    if (upstream.ok || upstream.status === 204) {
-      return okJson(request, env, { ok: true });
-    }
-
-    return errorJson(
-      request,
-      env,
-      upstream.status >= 500 ? 502 : upstream.status,
-      buildMessage(upstream.body, "Logout failed.")
-    );
-  } catch (error) {
-    if (error instanceof AuthGatewayError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      return errorJson(request, env, 504, "Authentication service timed out.");
-    }
-    return errorJson(request, env, 500, "Unable to logout.");
+  const body = await readValidatedBody(request, LogoutSchema, AUTH_MAX_BODY_BYTES);
+  const token = bearerFromHeader(request) ?? body.access_token;
+  if (!token) {
+    throw new HttpError(401, "Missing bearer token.");
   }
+  await enforceRateLimit(request, env, "logout", token);
+  const result = await callSupabaseAuth(env, "logout", "logout", "POST", {}, { bearer: token });
+  if (!result.ok && result.status !== 204) {
+    throw upstreamError(result, "Logout failed.");
+  }
+  await recordServerAudit(env, subjectOfAcceptedToken(token), "logout", "success", "Signed out via gateway.");
+  return okJson(request, env, { ok: true });
 }

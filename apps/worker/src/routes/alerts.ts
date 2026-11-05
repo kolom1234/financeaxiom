@@ -1,118 +1,113 @@
-import { AuthError, requireUserId } from "../services/auth";
-import { listAlertRulesFromDb, saveAlertRuleInDb } from "../services/postgres";
+import { z } from "zod";
+import { requireUserId } from "../services/auth";
+import { hasDatabase } from "../services/db";
+import { deleteAlertRule, listAlertRules, saveAlertRule } from "../services/postgres";
 import { checkRateLimit, rateLimitKey, type RateLimitConfig } from "../services/rateLimit";
 import { MemoryStore } from "../services/store";
-import { errorJson, okJson, readJsonWithLimit, RequestBodyError } from "./utils";
-import type { AlertRuleRecord, Env } from "../types";
+import { entitySlug, parsePathParam, uuid } from "./schemas";
+import { HttpError, formatRetryAfterSeconds, okJson, readValidatedBody } from "./utils";
+import type { Env } from "../types";
 
-type AlertRuleInput = Pick<AlertRuleRecord, "rule_id" | "rule_type" | "rule" | "enabled">;
 const ALERTS_GET_LIMIT: RateLimitConfig = { limit: 120, windowMs: 60 * 1000 };
-const ALERTS_POST_LIMIT: RateLimitConfig = { limit: 60, windowMs: 60 * 1000 };
+const ALERTS_WRITE_LIMIT: RateLimitConfig = { limit: 60, windowMs: 60 * 1000 };
 const ALERTS_RATE_SCOPE = "alerts";
 const ALERT_RULE_BODY_MAX_BYTES = 8 * 1024;
+export const MAX_ALERT_RULES_PER_USER = 50;
 
-function formatRateLimitSeconds(milliseconds: number): number {
-  return Math.max(1, Math.ceil(milliseconds / 1000));
+const common = {
+  rule_id: uuid.optional(),
+  enabled: z.boolean()
+};
+
+/** One schema per rule type; unknown keys inside `rule` are stripped. */
+const AlertRuleBodySchema = z.discriminatedUnion("rule_type", [
+  z.object({ ...common, rule_type: z.literal("breaking"), rule: z.object({ tab: z.literal("breaking").optional() }) }),
+  z.object({ ...common, rule_type: z.literal("macro"), rule: z.object({}) }),
+  z.object({ ...common, rule_type: z.literal("entity"), rule: z.object({ slug: entitySlug }) }),
+  z.object({
+    ...common,
+    rule_type: z.literal("ticker"),
+    rule: z.object({
+      ticker: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z][A-Z0-9.]{0,9}$/, "invalid ticker")
+    })
+  }),
+  z.object({
+    ...common,
+    rule_type: z.literal("filing_form"),
+    rule: z.object({
+      form_type: z
+        .string()
+        .trim()
+        .toUpperCase()
+        .regex(/^[A-Z0-9][A-Z0-9/-]{0,14}$/, "invalid SEC form type")
+        .optional()
+    })
+  })
+]);
+
+function useMemoryStore(env: Env): boolean {
+  if (hasDatabase(env)) {
+    return false;
+  }
+  if (env.TEST_AUTH_BYPASS === "1") {
+    return true;
+  }
+  throw new HttpError(503, "Persistent alert rule store is unavailable.");
 }
 
-function allowInMemoryRuleFallback(env: Env): boolean {
-  return env.TEST_AUTH_BYPASS === "1";
+async function enforceLimit(env: Env, userId: string, action: string, config: RateLimitConfig): Promise<void> {
+  if (!env.RATE_LIMITER_DO) {
+    throw new HttpError(503, "Rate limiter is not configured.");
+  }
+  const limit = await checkRateLimit(env.OFP_KV, rateLimitKey(action, userId, ALERTS_RATE_SCOPE), config, Date.now(), env.RATE_LIMITER_DO);
+  if (!limit.allowed) {
+    const seconds = formatRetryAfterSeconds(limit.retryAfterMs);
+    throw new HttpError(429, `Alert rules ${action === "get" ? "read" : "write"} is rate limited. Retry after ${seconds} seconds.`, {
+      "retry-after": seconds
+    });
+  }
 }
 
 export async function handleAlertsGet(request: Request, env: Env): Promise<Response> {
-  try {
-    const userId = await requireUserId(request, env);
-    if (!env.RATE_LIMITER_DO) {
-      return errorJson(request, env, 503, "Rate limiter is not configured.");
-    }
-    const limit = await checkRateLimit(
-      env.OFP_KV,
-      rateLimitKey("get", userId, ALERTS_RATE_SCOPE),
-      ALERTS_GET_LIMIT,
-      Date.now(),
-      env.RATE_LIMITER_DO
-    );
-    if (!limit.allowed) {
-      return errorJson(
-        request,
-        env,
-        429,
-        `Alert rules read is rate limited. Retry after ${formatRateLimitSeconds(limit.retryAfterMs)} seconds.`,
-        { "retry-after": String(formatRateLimitSeconds(limit.retryAfterMs)) }
-      );
-    }
-
-    const fromDb = await listAlertRulesFromDb(env, userId);
-    if (fromDb === undefined && !allowInMemoryRuleFallback(env)) {
-      return errorJson(request, env, 503, "Persistent alert rule store is unavailable.");
-    }
-
-    const rules = fromDb ?? MemoryStore.get().listAlertRules(userId);
-    return okJson(request, env, { rules });
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return errorJson(request, env, 401, error.message);
-    }
-    return errorJson(request, env, 400, "Unable to fetch alert rules.");
-  }
+  const userId = await requireUserId(request, env);
+  await enforceLimit(env, userId, "get", ALERTS_GET_LIMIT);
+  const rules = useMemoryStore(env) ? MemoryStore.get().listAlertRules(userId) : await listAlertRules(env, userId);
+  return okJson(request, env, { rules, max_rules: MAX_ALERT_RULES_PER_USER });
 }
 
 export async function handleAlertsPost(request: Request, env: Env): Promise<Response> {
-  try {
-    const userId = await requireUserId(request, env);
-    if (!env.RATE_LIMITER_DO) {
-      return errorJson(request, env, 503, "Rate limiter is not configured.");
-    }
-    const limit = await checkRateLimit(
-      env.OFP_KV,
-      rateLimitKey("post", userId, ALERTS_RATE_SCOPE),
-      ALERTS_POST_LIMIT,
-      Date.now(),
-      env.RATE_LIMITER_DO
-    );
-    if (!limit.allowed) {
-      return errorJson(
-        request,
-        env,
-        429,
-        `Alert rules write is rate limited. Retry after ${formatRateLimitSeconds(limit.retryAfterMs)} seconds.`,
-        { "retry-after": String(formatRateLimitSeconds(limit.retryAfterMs)) }
-      );
-    }
+  const userId = await requireUserId(request, env);
+  await enforceLimit(env, userId, "post", ALERTS_WRITE_LIMIT);
+  const body = await readValidatedBody(request, AlertRuleBodySchema, ALERT_RULE_BODY_MAX_BYTES);
+  const input = { rule_id: body.rule_id, rule_type: body.rule_type, rule: body.rule as Record<string, unknown>, enabled: body.enabled };
 
-    const body = await readJsonWithLimit<AlertRuleInput>(request, ALERT_RULE_BODY_MAX_BYTES);
-    if (!body?.rule_type || !body.rule || typeof body.enabled !== "boolean") {
-      return errorJson(request, env, 400, "Invalid alert rule payload.");
-    }
+  const result = useMemoryStore(env)
+    ? MemoryStore.get().saveAlertRule(userId, input, MAX_ALERT_RULES_PER_USER)
+    : await saveAlertRule(env, userId, input, MAX_ALERT_RULES_PER_USER);
 
-    const savedFromDb = await saveAlertRuleInDb(env, userId, {
-      rule_id: body.rule_id,
-      rule_type: body.rule_type,
-      rule: body.rule,
-      enabled: body.enabled
-    });
-    if (savedFromDb) {
-      return okJson(request, env, { rule: savedFromDb });
-    }
-
-    if (!allowInMemoryRuleFallback(env)) {
-      return errorJson(request, env, 503, "Persistent alert rule store is unavailable.");
-    }
-
-    const saved = MemoryStore.get().saveAlertRule(userId, {
-      rule_id: body.rule_id,
-      rule_type: body.rule_type,
-      rule: body.rule,
-      enabled: body.enabled
-    });
-    return okJson(request, env, { rule: saved });
-  } catch (error) {
-    if (error instanceof AuthError) {
-      return errorJson(request, env, 401, error.message);
-    }
-    if (error instanceof RequestBodyError) {
-      return errorJson(request, env, error.status, error.message);
-    }
-    return errorJson(request, env, 400, error instanceof Error ? error.message : "Unable to save alert rule.");
+  if (result.status === "not_found") {
+    throw new HttpError(404, "Alert rule not found.");
   }
+  if (result.status === "limit_reached") {
+    throw new HttpError(409, `Alert rule limit reached (${MAX_ALERT_RULES_PER_USER} per account).`);
+  }
+  return okJson(request, env, { rule: result.rule }, undefined, body.rule_id ? 200 : 201);
+}
+
+export async function handleAlertsDelete(request: Request, env: Env, rawRuleId: string): Promise<Response> {
+  const userId = await requireUserId(request, env);
+  const ruleId = parsePathParam(uuid, rawRuleId);
+  if (!ruleId) {
+    throw new HttpError(400, "Invalid alert rule id.");
+  }
+  await enforceLimit(env, userId, "post", ALERTS_WRITE_LIMIT);
+  const deleted = useMemoryStore(env) ? MemoryStore.get().deleteAlertRule(userId, ruleId) : await deleteAlertRule(env, userId, ruleId);
+  if (!deleted) {
+    throw new HttpError(404, "Alert rule not found.");
+  }
+  return okJson(request, env, { deleted: true });
 }

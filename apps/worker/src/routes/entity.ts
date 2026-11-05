@@ -1,50 +1,38 @@
-import { fetchEntityFromDb, resolveOpenSourceUrl } from "../services/postgres";
+import { hasDatabase } from "../services/db";
 import { allowMemoryReadFallback } from "../services/fallbackPolicy";
+import { withOpenSourceLinks } from "../services/links";
+import { queryEntity } from "../services/postgres";
 import { MemoryStore } from "../services/store";
-import { errorJson, okJson } from "./utils";
+import { entitySlug, parsePathParam } from "./schemas";
+import { HttpError, okJson } from "./utils";
 import type { Env } from "../types";
-import type { FeedItemPayload } from "@ofp/shared";
 
-function applyOpenSourceFallback(items: FeedItemPayload[]): FeedItemPayload[] {
-  return items.map((item) => ({
-    ...item,
-    external_url: resolveOpenSourceUrl({
-      externalUrl: item.external_url ?? null,
-      itemType: item.item_type,
-      headline: item.headline,
-      entities: item.entities.map((entity) => ({
-        name: entity.name,
-        slug: entity.slug
-      }))
-    })
-  }));
-}
+export async function handleEntity(request: Request, env: Env, rawSlug: string): Promise<Response> {
+  const slug = parsePathParam(entitySlug, rawSlug.toLowerCase());
+  if (!slug) {
+    throw new HttpError(400, "Invalid entity slug.");
+  }
 
-function filterAllowedLicense(items: FeedItemPayload[]): FeedItemPayload[] {
-  return items.filter((item) => item.license.commercial_status === "allowed");
-}
-
-export async function handleEntity(request: Request, env: Env, slug: string): Promise<Response> {
-  const fromDb = await fetchEntityFromDb(env, slug);
-  if (fromDb) {
-    if (fromDb.items.length === 0 && fromDb.entity.slug === slug && fromDb.entity.name === slug) {
-      return errorJson(request, env, 404, "Entity not found.");
+  if (hasDatabase(env)) {
+    const result = await queryEntity(env, slug);
+    if (!result) {
+      throw new HttpError(404, "Entity not found.");
     }
-    return okJson(request, env, {
-      entity: fromDb.entity,
-      items: filterAllowedLicense(applyOpenSourceFallback(fromDb.items))
-    });
+    return okJson(request, env, result);
   }
 
   if (!allowMemoryReadFallback(env)) {
-    return errorJson(request, env, 503, "Persistent entity store is unavailable.");
+    throw new HttpError(503, "Persistent entity store is unavailable.");
   }
 
   const store = MemoryStore.get();
   const entity = store.getEntity(slug);
   if (!entity) {
-    return errorJson(request, env, 404, "Entity not found.");
+    throw new HttpError(404, "Entity not found.");
   }
-  const items = filterAllowedLicense(applyOpenSourceFallback(store.listEntityFeed(slug)));
-  return okJson(request, env, { entity, items });
+  const items = withOpenSourceLinks(store.listEntityFeed(slug)).filter((item) => item.license.commercial_status === "allowed");
+  return okJson(request, env, {
+    entity: { slug: entity.slug, name: entity.name, primary_ticker: entity.primary_ticker ?? null },
+    items
+  });
 }

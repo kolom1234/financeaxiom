@@ -252,11 +252,21 @@ export function IndicatorPage(): JSX.Element {
     let active = true;
     setLoading(true);
     setErrorText(null);
-    void getSeries(seriesId, mode).then((data) => {
+    void getSeries(seriesId, mode).then((result) => {
       if (!active) {
         return;
       }
-      const parsed = parseSeriesPayload(data);
+      if (result.status !== "ok") {
+        setPayload(null);
+        setErrorText(
+          result.status === "not_found"
+            ? `No public ${mode} series named "${seriesId}". Try the other mode.`
+            : `Series data is temporarily unavailable: ${result.message}`
+        );
+        setLoading(false);
+        return;
+      }
+      const parsed = parseSeriesPayload(result.data);
       if (!parsed) {
         setPayload(null);
         setErrorText("No structured series payload returned.");

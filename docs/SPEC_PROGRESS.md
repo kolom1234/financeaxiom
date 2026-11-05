@@ -1,4 +1,4 @@
-﻿# SPEC Progress Ledger
+# SPEC Progress Ledger
 
 Last updated: 2026-02-18 (local session)
 
@@ -41,9 +41,11 @@ Last updated: 2026-02-18 (local session)
 | GATE-F | `SPEC.md:1072-1075`, `SPEC.md:1146` | `apps/worker/src/compliance/gates.ts:36`, `packages/policy/src/index.ts:28`, `apps/worker/src/ingest/types.ts:3` | `npm run test:release-gate` | DONE |
 | M8-01 | `SPEC.md:691-704`, `SPEC.md:1152` | `apps/web/src/components/AdSlot.tsx:11`, `apps/web/src/components/ConsentBanner.tsx:13` | `npm run test:e2e` | DONE |
 | M9-01 | `SPEC.md:707-715` | `apps/worker/src/routes/legal.ts:1`, `apps/web/src/routes/LegalPage.tsx:10` | `npm run test:integration` + legal cache path review | DONE |
-| M7-01 | `SPEC.md:675-688` | `apps/worker/src/routes/push.ts:21`, `apps/worker/src/services/crypto.ts:23`, `supabase/migrations/0001_init.sql:166`, `apps/worker/src/services/postgres.ts:426` | `npm run test:integration` | DONE |
-| M7-02 | `SPEC.md:680-687` | `apps/worker/src/push/queue.ts:113`, `apps/worker/src/services/store.ts:529`, `apps/worker/src/services/postgres.ts:663`, `apps/worker/src/index.ts:140` | `npm run -w apps/worker test:unit` + `npm run -w apps/worker test:integration` | DONE |
-| REL-ALL | `SPEC.md:1146-1153` | `scripts/test/release-gate.js:8` | `npm run test:release-gate` (all PASS) | DONE |
+| M7-01 | `SPEC.md:675-688` | `apps/worker/src/routes/push.ts`, `apps/worker/src/push/endpoints.ts`, `supabase/migrations/0005_integrity_indexes_and_push_keys.sql` | `npm run test:db` | DONE (2026-11-05: previously NOT met — only the endpoint IV was stored, so p256dh/auth were undecryptable; fixed with per-field IVs) |
+| M7-02 | `SPEC.md:680-687` | `apps/worker/src/push/queue.ts`, `apps/worker/src/push/webpush.ts`, `apps/web/public/sw.js` | `npm run test:unit` (RFC 8291 vector) + `npm run test:db` | DONE (2026-11-05: previously NOT met — no Web Push delivery existed and notifications were marked "sent" without sending) |
+| REL-ALL | `SPEC.md:1146-1153` | `scripts/test/release-gate.js` | `npm run test:release-gate` (behavioural suites + config checks) | DONE (2026-11-05: the previous gate only grepped source strings) |
+
+> 2026-11-05: see `docs/REMEDIATION_2026-11-05.md` for the full review. Several rows above were marked DONE although the behaviour was missing or incorrect (M7-01/M7-02, ingestion accuracy, consent fail-closed); those are now covered by behavioural tests.
 
 ## Local Verification Snapshot (This Session)
 

@@ -11,15 +11,23 @@ export function EntityPage(): JSX.Element {
   const { slug = "" } = useParams();
   const [entityName, setEntityName] = useState(slug);
   const [items, setItems] = useState<FeedItemPayload[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    void getEntity(slug).then((response) => {
+    setNotice(null);
+    void getEntity(slug).then((result) => {
       if (!active) {
         return;
       }
-      setEntityName(response.entity.name);
-      setItems(response.items);
+      if (result.status === "ok") {
+        setEntityName(result.data.entity.name);
+        setItems(result.data.items);
+        setNotice(result.data.items.length === 0 ? "No indexed items for this entity yet." : null);
+        return;
+      }
+      setItems([]);
+      setNotice(result.status === "not_found" ? "Entity not found." : `Entity feed is temporarily unavailable: ${result.message}`);
     });
     return () => {
       active = false;
@@ -32,6 +40,11 @@ export function EntityPage(): JSX.Element {
         <h1>{entityName}</h1>
         <p className="muted-copy">Entity feed includes self-generated headlines only.</p>
       </header>
+      {notice ? (
+        <p className="system-banner glass-panel" role="status">
+          {notice}
+        </p>
+      ) : null}
       <ul className="feed-list">
         {items.map((item) => (
           <li key={item.item_id} className="feed-card glass-panel">

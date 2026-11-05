@@ -143,16 +143,21 @@ graph TD
 | `GET` | `/api/indicators/key` | 핵심 지표 카드 + 스파크라인 데이터 |
 | `GET` | `/api/legal` | 소스/라이선스/법적 안내 payload |
 | `GET` | `/api/geo` | 지역 정책 분류(`EU_UK_CH`, `US_STATE_PRIVACY`, `NON_EU`) |
-| `GET` | `/api/entity/:slug` | 엔티티 관련 피드(허용 라이선스만 노출) |
-| `GET` | `/api/series/:id` | 시계열 raw/derived 조회(허용 라이선스만 노출) |
-| `GET` | `/api/f/:accession` | 공시 데이터 조회 |
+| `GET` | `/api/entity/:slug` | 엔티티 관련 피드(허용 라이선스만 노출), 없으면 404 |
+| `GET` | `/api/series/:id` | UUID 또는 코드(예: `US_CPI_YOY`)로 raw/derived 시계열 조회(허용 라이선스만), `from`/`to`는 `YYYY-MM-DD` |
+| `GET` | `/api/f/:accession` | SEC 출처 표기를 포함한 공시 메타데이터, 없으면 404 |
+| `GET` | `/api/push/config` | Web Push 활성화 여부와 공개 VAPID 키 |
+
+상태 코드: `400` 잘못된 입력, `404` 없음, `429` 레이트리밋(`retry-after`), `503` 영구 저장소 장애(로그 대조용 `x-request-id`). `/api/feed`는 불투명 keyset `cursor`(`next_cursor`)를 사용합니다. 지표 카드의 `yoy`는 날짜로 맞춘 전년 동기 대비 %이며 이미 %인 시리즈는 `null`이고, `change`/`change_unit`(% 시리즈는 `pp`)을 함께 제공합니다.
 
 ### 5.2 인증 필요 API
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET`,`POST` | `/api/account/audit` | 사용자 계정 활동 감사 로그 |
-| `GET`,`POST` | `/api/alerts/rules` | 알림 규칙 조회/저장 |
+| `GET`,`POST` | `/api/alerts/rules` | 알림 규칙 조회/저장(규칙 유형별 검증, 계정당 최대 50개) |
+| `DELETE` | `/api/alerts/rules/:id` | 본인 규칙 삭제 |
+| `POST` | `/api/account/delete` | 본인 앱 데이터 삭제(`{"confirm":"DELETE"}`), `SUPABASE_SERVICE_ROLE_KEY` 설정 시 로그인 계정도 삭제 |
 | `POST` | `/api/push/subscribe` | 푸시 구독 저장(암호화 저장) |
 | `POST` | `/api/push/unsubscribe` | 푸시 구독 제거 |
 | `GET` | `/api/stream` | 인증 기반 실시간 이벤트 스트림 |
@@ -175,25 +180,32 @@ graph TD
 | 퍼블리셔 콘텐츠 제한 | 기사 본문/원문 헤드라인/이미지 필드 차단(메타데이터-only) |
 | 소스별 제약 정책 | FRED 하드블록, Eurostat 지역 필터, OECD/WB 제한 게이트 |
 | Attribution 표기 | UI에서 `license.attribution_text` 노출 |
-| 공개 API 남용 방지 | 스코프별 레이트리밋 + DO 기반 제어 |
+| 공개 API 남용 방지 | 공개 조회는 엣지 Cache API 우선, 캐시 미스에만 스코프별 레이트리밋(DO) |
 | SEC 공정접근 준수 | User-Agent 선언 + 요청 속도 제한 |
-| 인증 하드닝 | 본문 크기 제한, redirect 검증, 서킷브레이커/재시도 정책 |
-| 푸시 개인정보 보호 | endpoint/keys AES-GCM 암호화 저장 |
-| 광고 동의 정책 | TCF/GPP/USP 신호 확인 후 광고 스크립트 로드 |
+| 인증 하드닝 | 본문 크기 제한, zod 검증, redirect 검증, 재시도/서킷브레이커(상태 전이 시에만 KV 기록), CAPTCHA 토큰 전달. anon 키로 Supabase Auth를 직접 호출할 수 있으므로 실질적 무차별 대입 방어는 Supabase 설정(레이트리밋 + CAPTCHA)에서 켜야 함 |
+| 푸시 개인정보/발송 | endpoint/keys를 필드별 IV로 AES-GCM 암호화 저장, RFC 8291/8292 발송, 브라우저 푸시 서비스 호스트만 허용 |
+| 광고 동의 정책 | EEA+UK+CH 및 미국 개인정보법 시행 주를 서버에서 분류, 판정 불가/실패 시 가장 엄격한 정책 적용, TCF/GPP/USP 신호 확인 후 광고 스크립트 로드 |
+| 데이터 무결성 | 고유 dedupe 키, 기존 항목 재날짜 금지, 날짜 기준 YoY, ECB 공식 수정치 반영 및 이력 보관 |
+| DB 직접 접근 | RLS: anon은 사용자 테이블 접근 불가, 로그인 사용자는 본인 행 읽기만 가능(쓰기는 워커 경유) |
 | OSS 고지 체계 | `THIRD_PARTY_NOTICES.txt` 생성 + lockfile 동기화 게이트 |
 
 ## 7. 품질 게이트 및 테스트 전략
 
 | 명령어 | 목적 |
 |---|---|
-| `npm run typecheck` | 전체 워크스페이스 타입 정합성 |
-| `npm run test:unit` | 정책/워커 단위 테스트 |
+| `npm run typecheck` | 전체 워크스페이스 타입 정합성(워커 테스트 포함) |
+| `npm test` | 단위 + 통합 + 실제 Postgres + 컴플라이언스 스위트 |
+| `npm run test:unit` | 정책/워커 단위 테스트(RFC 8291 Web Push 테스트 벡터 포함) |
 | `npm run test:integration` | 워커 라우트 통합 테스트 |
-| `npm run test:compliance` | 스펙/법무 정책 준수 테스트 |
+| `npm run test:db` | 모든 마이그레이션을 적용한 실제 PostgreSQL(PGlite)에서 API/수집 검증 |
+| `npm run test:compliance` | 컴플라이언스 게이트 + 실제 스키마 대상 동작 검증 |
 | `npm run test:e2e` | 프론트 사용자 플로우 + 동의 시나리오 검증 |
-| `npm run test:release-gate` | 릴리즈 핵심 정책 게이트 + OSS 노티스 게이트 |
+| `npm run test:release-gate` | 컴플라이언스/실제 Postgres 스위트 실행 + 설정 점검(CSP, DLQ, 시드 내용) + OSS 노티스 게이트 |
 | `npm run test:cmp-deploy` | 실배포 CMP 마커/광고 메타 파일 스모크 검증 |
 | `npm run gen:oss-notices` | lockfile 기반 `THIRD_PARTY_NOTICES.txt` 재생성 |
+| `npm run gen:vapid-keys` | Web Push용 VAPID 키 쌍 생성 |
+
+CI(`.github/workflows/ci.yml`)는 모든 PR에서 타입체크, 린트, 전체 테스트, 빌드, Workers 번들 dry-run, 릴리즈 게이트, Playwright e2e를 실행합니다. 테스트와 개발 서버는 사전 `npm run build` 없이 동작합니다(워크스페이스 패키지를 소스에서 해석).
 
 ## 8. 로컬 개발 가이드
 
@@ -224,11 +236,12 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 
 ### 8.4 DB 자산
 
-- 마이그레이션: `supabase/migrations/`
-- 시드 데이터: `supabase/seed.sql`
-- 보조 명령:
-  - `npm run db:migrate`
-  - `npm run db:seed`
+- 마이그레이션: `supabase/migrations/`(순서대로 적용, 모두 멱등)
+- 참조 데이터(라이선스, 소스, 엔티티): `supabase/seed.sql`(모든 환경에 적용 가능)
+- 로컬 개발 전용 샘플 콘텐츠: `supabase/sample_data.sql`(로컬 Supabase 스택만 로드, 운영에 절대 적용 금지)
+- 보조 명령(Supabase CLI 및 프로젝트 link 필요):
+  - `npm run db:migrate` (`supabase db push`)
+  - `npm run db:seed` (`supabase db push --include-seed`)
 
 ## 9. 환경 변수 구성
 
@@ -239,7 +252,6 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 | `VITE_SUPABASE_URL` | 프론트 인증 SDK용 Supabase URL |
 | `VITE_SUPABASE_ANON_KEY` | 프론트 공개 anon 키 |
 | `VITE_API_BASE_URL` | API 베이스 URL 오버라이드 |
-| `VITE_VAPID_PUBLIC_KEY` | 푸시 공개키 |
 | `VITE_AD_CLIENT_ID` | 광고 클라이언트 식별자 |
 
 ### 9.2 Worker (`apps/worker/.dev.vars.example`)
@@ -251,7 +263,10 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 | `SEC_USER_AGENT` | SEC 접근 정책용 UA |
 | `PUSH_DATA_ENC_KEY` | 푸시 데이터 암호화 키 |
 | `EVENT_HUB_INTERNAL_TOKEN` | 내부 이벤트 허브 토큰 |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 푸시 자격정보 |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web Push 자격정보(`npm run gen:vapid-keys`, subject는 `mailto:` 또는 `https:`). 모두 설정되기 전까지 푸시는 비활성 |
+| `SUPABASE_SERVICE_ROLE_KEY` | 선택 secret: `/api/account/delete`에서 Supabase Auth 사용자까지 삭제 |
+| `BLS_API_KEY` / `BEA_API_KEY` / `EIA_API_KEY` | 외부 API 키(BLS는 선택, BEA는 키가 없으면 수집 건너뜀) |
+| `GDELT_RETENTION_DAYS` / `NOTIFICATION_RETENTION_DAYS` | 보존 기간(기본 90일) |
 | `ALLOWED_ORIGINS` / `AUTH_ALLOWED_REDIRECT_ORIGINS` | CORS 및 redirect allowlist |
 
 보안 주의: 실제 비밀값은 절대 커밋하지 마세요. `.gitignore`는 `.env*`, `.dev.vars*`, `.wrangler/`, 인증서/키 패턴을 차단하도록 설정되어 있습니다.
@@ -270,6 +285,13 @@ npx wrangler pages deploy apps/web/dist --project-name open-finance-pulse --bran
 ```bash
 npx wrangler deploy --config apps/worker/wrangler.toml
 ```
+
+이 버전을 처음 배포하기 전에:
+
+1. 마이그레이션 `0005`, `0006` 적용(`npm run db:migrate`). `0006`은 기존에 잘못 수집된 데이터를 바로잡습니다(`docs/REMEDIATION_2026-11-05.md` 참고).
+2. secret 설정: `PUSH_DATA_ENC_KEY`, `VAPID_PRIVATE_KEY`(선택: `SUPABASE_SERVICE_ROLE_KEY`, `BLS_API_KEY`, `BEA_API_KEY`)를 `npx wrangler secret put <NAME> --config apps/worker/wrangler.toml`로 등록하고, `VAPID_PUBLIC_KEY`/`VAPID_SUBJECT`는 vars로 설정.
+3. `wrangler.toml`이 참조하는 DLQ `ofp-ingest-dlq`/`ofp-push-dlq`가 자동 생성되지 않는 계정이면 `npx wrangler queues create <name>`으로 생성.
+4. Supabase에서 CAPTCHA를 켜고 Auth 레이트리밋을 점검(게이트웨이가 `captcha_token`을 전달). 가능하면 Hyperdrive가 `postgres` 대신 최소 권한 전용 DB 롤을 사용하도록 설정.
 
 ### 10.3 배포 후 검증
 
@@ -291,6 +313,7 @@ npm run test:cmp-deploy
 |---|---|
 | `SPEC.md` | 제품/컴플라이언스 기준 스펙 |
 | `docs/HANDOFF.md` | 운영 핸드오프 및 재진입 가이드 |
+| `docs/REMEDIATION_2026-11-05.md` | 전체 프로젝트 점검 결과, 수정 내용, 검증 근거 |
 | `docs/LEGAL_AUDIT_2026-02-20.md` | 법무/컴플라이언스 감사 로그 및 조치 상태 |
 | `docs/OSS_NOTICES_PROCESS.md` | OSS 고지 생성/검증 절차 |
 | `docs/LEGAL_NOTICES.md` | 데이터 소스 정책 링크 집합 |
@@ -298,7 +321,8 @@ npm run test:cmp-deploy
 
 ## 12. 현재 제약사항
 
-- `apps/web/public/ads.txt`, `apps/web/public/sellers.json`는 광고 상용화 준비용 기본 파일입니다. 실제 광고 운영 전 판매자 메타데이터를 반영해야 합니다.
+- `apps/web/public/ads.txt`, `apps/web/public/sellers.json`에는 아직 판매자 정보가 없고, `AdSlot.tsx`의 광고 SDK URL은 플레이스홀더이며 인증 CMP도 로드되지 않습니다. 광고를 켤 때 공급사 스크립트/프레임 출처를 `apps/web/public/_headers`의 CSP에 추가해야 합니다.
+- 마이그레이션 `0005` 이전에 만들어진 푸시 구독은 키 IV가 저장되지 않아 복호화할 수 없습니다. 브라우저가 Alerts 페이지에서 다시 구독할 때까지 발송 대상에서 제외됩니다.
 - 인증된 CMP 동작은 외부 런타임 의존성이므로 배포마다 `npm run test:cmp-deploy`로 검증해야 합니다.
 - 일부 문서는 날짜 기반 감사 스냅샷이므로 외부 보고 전 최신 배포 상태와 함께 교차 검증이 필요합니다.
 

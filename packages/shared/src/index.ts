@@ -1,6 +1,6 @@
 export type CommercialStatus = "allowed" | "conditional" | "disallowed";
 
-export type RegionPolicy = "EU_UK_CH" | "NON_EU";
+export type RegionPolicy = "EU_UK_CH" | "US_STATE_PRIVACY" | "NON_EU";
 
 export interface LicensePayload {
   code: string;
