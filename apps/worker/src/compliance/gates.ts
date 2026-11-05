@@ -43,8 +43,9 @@ export function gateG_secDeclaredUserAgent(userAgent: string | undefined): boole
   if (!userAgent) {
     return false;
   }
-  const hasEmail = userAgent.includes("@");
-  const hasCompanyText = userAgent.trim().split(" ").length >= 2;
+  const parts = userAgent.trim().split(/\s+/);
+  const hasEmail = parts.some((part) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(part));
+  const hasCompanyText = parts.some((part) => !part.includes("@"));
   return hasEmail && hasCompanyText;
 }
 

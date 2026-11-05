@@ -11,7 +11,8 @@
     "test:unit": "vitest run --config vitest.config.ts test/unit",
     "test:integration": "vitest run --config vitest.config.ts test/integration",
     "test:compliance": "vitest run --config vitest.config.ts test/compliance",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "test:db": "vitest run --config vitest.config.ts test/db"
   },
   "dependencies": {
     "@ofp/policy": "0.1.0",

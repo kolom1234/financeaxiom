@@ -1,13 +1,12 @@
+import { gateG_secDeclaredUserAgent } from "../compliance/gates";
 import type { Env } from "../types";
 
+/** Gate G: SEC fair-access policy requires a declared User-Agent (company name + contact e-mail). */
 export function assertSecUserAgentConfigured(env: Env): void {
-  const ua = env.SEC_USER_AGENT?.trim();
-  if (!ua) {
+  if (!env.SEC_USER_AGENT?.trim()) {
     throw new Error("SEC_USER_AGENT is required.");
   }
-  const hasContact = ua.includes("@");
-  const hasCompany = ua.split(" ").length >= 2;
-  if (!hasContact || !hasCompany) {
+  if (!gateG_secDeclaredUserAgent(env.SEC_USER_AGENT.trim())) {
     throw new Error("SEC_USER_AGENT must include company name and contact email.");
   }
 }

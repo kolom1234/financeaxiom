@@ -1,6 +1,16 @@
 # Open Finance Pulse Handoff
 
-Last updated: 2026-02-17 (local session)
+Last updated: 2026-11-05 — full review and remediation, see `docs/REMEDIATION_2026-11-05.md`
+(sections below dated 2026-02-17 are kept for history; file/line references in them predate the
+2026-11-05 refactor, e.g. `ingest/live.ts` was split into `ingest/sources/*`).
+
+## 0) 2026-11-05 deployment checklist
+
+1. Apply migrations `0005` and `0006` (`npm run db:migrate`).
+2. Set worker secrets: `PUSH_DATA_ENC_KEY`, `VAPID_PRIVATE_KEY` (+ optional `SUPABASE_SERVICE_ROLE_KEY`, `BLS_API_KEY`, `BEA_API_KEY`); vars `VAPID_PUBLIC_KEY`, `VAPID_SUBJECT` (`npm run gen:vapid-keys`).
+3. Ensure dead-letter queues `ofp-ingest-dlq` and `ofp-push-dlq` exist.
+4. Enable CAPTCHA and review Auth rate limits in Supabase.
+5. Deploy worker, then Pages; run `npm run test:release-gate` and the smoke checks in README §10.3.
 
 ## 1) Purpose
 

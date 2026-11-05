@@ -143,16 +143,21 @@ graph TD
 | `GET` | `/api/indicators/key` | Key indicator cards and sparkline payloads |
 | `GET` | `/api/legal` | Source/license statements and legal payload |
 | `GET` | `/api/geo` | Region policy classification (`EU_UK_CH`, `US_STATE_PRIVACY`, `NON_EU`) |
-| `GET` | `/api/entity/:slug` | Entity-related feed items (allowed-license only) |
-| `GET` | `/api/series/:id` | Raw/derived series data (allowed-license only) |
-| `GET` | `/api/f/:accession` | Filing lookup |
+| `GET` | `/api/entity/:slug` | Entity-related feed items (allowed-license only); 404 if unknown |
+| `GET` | `/api/series/:id` | Raw/derived series by UUID or code, e.g. `US_CPI_YOY` (allowed-license only); `from`/`to` = `YYYY-MM-DD` |
+| `GET` | `/api/f/:accession` | Filing metadata with SEC attribution; 404 if unknown |
+| `GET` | `/api/push/config` | Whether Web Push is enabled and the public VAPID key |
+
+Status codes: `400` invalid input, `404` not found, `429` rate limited (`retry-after`), `503` persistent store unavailable (`x-request-id` for log correlation). `/api/feed` uses an opaque keyset `cursor` (`next_cursor`). Indicator cards expose `yoy` (date-matched year-over-year %, `null` for series already in %) and `change`/`change_unit` (`pp` for % series).
 
 ### 5.2 Authenticated Endpoints
 
 | Method | Path | Purpose |
 |---|---|---|
 | `GET`,`POST` | `/api/account/audit` | User account activity audit trail |
-| `GET`,`POST` | `/api/alerts/rules` | Alert rule management |
+| `GET`,`POST` | `/api/alerts/rules` | Alert rule management (validated per rule type, max 50 per account) |
+| `DELETE` | `/api/alerts/rules/:id` | Delete one of your rules |
+| `POST` | `/api/account/delete` | Erase your app data (`{"confirm":"DELETE"}`); also deletes the login account when `SUPABASE_SERVICE_ROLE_KEY` is set |
 | `POST` | `/api/push/subscribe` | Push subscription upsert (encrypted at rest) |
 | `POST` | `/api/push/unsubscribe` | Push subscription removal |
 | `GET` | `/api/stream` | Authenticated event stream |
@@ -175,25 +180,32 @@ graph TD
 | Metadata-only publisher handling | Policy gates prevent publisher body/headline/image ingestion |
 | Source-specific restrictions | FRED hard block, Eurostat geo filter, OECD/WB restricted gating |
 | Attribution visibility | UI surfaces include `license.attribution_text` where required |
-| Public route abuse controls | Per-scope rate limiting via `RateLimiterDO` |
+| Public route abuse controls | Edge Cache API for public reads, then per-scope rate limiting via `RateLimiterDO` on cache misses |
 | SEC fair-access | Declared user-agent and request rate limiting (`SecLimiterDO`) |
-| Auth hardening | Input size limits, redirect allowlist, retry/circuit-breaker behaviors |
-| Push privacy | Subscription endpoint/keys encrypted with AES-GCM before storage |
-| Consent compliance | EU/US-state signal checks with TCF/GPP/USP bridge before ad script load |
+| Auth hardening | Input size limits, zod validation, redirect allowlist, retry/circuit breaker (KV written only on state transitions), CAPTCHA token passthrough. Authoritative brute-force protection must be enabled in Supabase (rate limits + CAPTCHA), because the anon key also allows calling Supabase Auth directly |
+| Push privacy & delivery | Endpoint/keys encrypted with AES-GCM (one IV per field); RFC 8291/8292 delivery; endpoints limited to browser push services |
+| Consent compliance | EEA+UK+CH and US privacy-law states classified server-side; unknown/failed geo fails closed; TCF/GPP/USP bridge before ad script load |
+| Data integrity | Unique dedupe keys, items never re-dated, date-matched YoY, official ECB revisions applied with an audit trail |
+| Direct DB access | RLS: no anon access to user tables; authenticated users can read but not write their own rows (all writes go through the worker) |
 | OSS license readiness | Generated `THIRD_PARTY_NOTICES.txt` + stale-lockfile gate |
 
 ## 7. Quality Gates and Test Strategy
 
 | Command | Scope |
 |---|---|
-| `npm run typecheck` | Type integrity across all workspaces |
-| `npm run test:unit` | Policy + worker unit tests |
+| `npm run typecheck` | Type integrity across all workspaces (worker tests included) |
+| `npm test` | Unit + integration + real-Postgres + compliance suites |
+| `npm run test:unit` | Policy + worker unit tests (incl. RFC 8291 Web Push test vector) |
 | `npm run test:integration` | Worker integration route tests |
-| `npm run test:compliance` | Spec/legal compliance gates |
+| `npm run test:db` | API and ingestion against real PostgreSQL (PGlite) with every migration applied |
+| `npm run test:compliance` | Compliance gates, incl. behavioural checks against the real schema |
 | `npm run test:e2e` | Frontend flows and consent behavior via Playwright |
-| `npm run test:release-gate` | Critical release policy checks + OSS notice gate |
+| `npm run test:release-gate` | Runs the compliance + real-Postgres suites and configuration checks (CSP, dead-letter queues, seed content) + OSS notice gate |
 | `npm run test:cmp-deploy` | Production smoke check for CMP markers and ad metadata files |
 | `npm run gen:oss-notices` | Regenerate `THIRD_PARTY_NOTICES.txt` from lockfile |
+| `npm run gen:vapid-keys` | Generate a VAPID key pair for Web Push |
+
+CI (`.github/workflows/ci.yml`) runs typecheck, lint, all test suites, build, a Workers bundle dry-run, the release gate and Playwright e2e on every pull request. No prior `npm run build` is required for tests or the dev server (workspace packages resolve from source).
 
 ## 8. Local Development
 
@@ -224,11 +236,12 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 
 ### 8.4 Database Assets
 
-- Migrations: `supabase/migrations/`
-- Seed: `supabase/seed.sql`
-- Helper commands:
-  - `npm run db:migrate`
-  - `npm run db:seed`
+- Migrations: `supabase/migrations/` (applied in order; all are idempotent)
+- Reference data (licenses, sources, entities): `supabase/seed.sql` — safe for every environment
+- Sample content for local development only: `supabase/sample_data.sql` (loaded by the local Supabase stack; never apply to production)
+- Helper commands (require the Supabase CLI, linked to the project):
+  - `npm run db:migrate` (`supabase db push`)
+  - `npm run db:seed` (`supabase db push --include-seed`)
 
 ## 9. Environment Configuration
 
@@ -239,7 +252,6 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 | `VITE_SUPABASE_URL` | Supabase URL for frontend auth client |
 | `VITE_SUPABASE_ANON_KEY` | Public anon key for frontend SDK |
 | `VITE_API_BASE_URL` | API base override |
-| `VITE_VAPID_PUBLIC_KEY` | Push public key |
 | `VITE_AD_CLIENT_ID` | Ad client identifier |
 
 ### 9.2 Worker (`apps/worker/.dev.vars.example`)
@@ -251,7 +263,10 @@ npm run -w apps/web dev -- --host 127.0.0.1 --port 4173
 | `SEC_USER_AGENT` | SEC access policy user-agent |
 | `PUSH_DATA_ENC_KEY` | Encryption key for push payload storage |
 | `EVENT_HUB_INTERNAL_TOKEN` | Internal auth token for event hub calls |
-| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Push credentials |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | Web Push credentials (`npm run gen:vapid-keys`; subject `mailto:` or `https:`). Push is disabled until all are set |
+| `SUPABASE_SERVICE_ROLE_KEY` | Optional secret: lets `/api/account/delete` remove the Supabase Auth user |
+| `BLS_API_KEY` / `BEA_API_KEY` / `EIA_API_KEY` | Upstream API keys (BLS optional; BEA ingestion is skipped without a key) |
+| `GDELT_RETENTION_DAYS` / `NOTIFICATION_RETENTION_DAYS` | Retention windows (default 90 days) |
 | `ALLOWED_ORIGINS` / `AUTH_ALLOWED_REDIRECT_ORIGINS` | CORS and redirect allowlists |
 
 Security note: never commit real secret values. `.gitignore` blocks `.env*`, `.dev.vars*`, `.wrangler/`, and key/certificate patterns.
@@ -270,6 +285,13 @@ npx wrangler pages deploy apps/web/dist --project-name open-finance-pulse --bran
 ```bash
 npx wrangler deploy --config apps/worker/wrangler.toml
 ```
+
+Before the first deploy of this version:
+
+1. Apply migrations `0005` and `0006` (`npm run db:migrate`). `0006` corrects previously ingested data (see `docs/REMEDIATION_2026-11-05.md`).
+2. Set secrets: `PUSH_DATA_ENC_KEY`, `VAPID_PRIVATE_KEY` (and optionally `SUPABASE_SERVICE_ROLE_KEY`, `BLS_API_KEY`, `BEA_API_KEY`) with `npx wrangler secret put <NAME> --config apps/worker/wrangler.toml`; set `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` as vars.
+3. Dead-letter queues `ofp-ingest-dlq` / `ofp-push-dlq` are referenced by `wrangler.toml`; create them if your account does not create them automatically (`npx wrangler queues create <name>`).
+4. In Supabase: enable CAPTCHA and review Auth rate limits (the gateway forwards `captcha_token`). Optionally point Hyperdrive at a dedicated least-privileged database role instead of `postgres`.
 
 ### 10.3 Post-Deploy Validation
 
@@ -291,6 +313,7 @@ Recommended production smoke checks:
 |---|---|
 | `SPEC.md` | Primary product and compliance specification |
 | `docs/HANDOFF.md` | Operational handoff and continuation guide |
+| `docs/REMEDIATION_2026-11-05.md` | Full-project review findings, fixes and verification evidence |
 | `docs/LEGAL_AUDIT_2026-02-20.md` | Legal/compliance audit log and remediation status |
 | `docs/OSS_NOTICES_PROCESS.md` | OSS notice generation and release process |
 | `docs/LEGAL_NOTICES.md` | Data-source legal references |
@@ -298,7 +321,8 @@ Recommended production smoke checks:
 
 ## 12. Known Constraints
 
-- `apps/web/public/ads.txt` and `apps/web/public/sellers.json` are currently staged for deployment readiness; fill with production ad vendor metadata when monetization is enabled.
+- `apps/web/public/ads.txt` and `apps/web/public/sellers.json` contain no sellers yet; the ad SDK URL in `AdSlot.tsx` is a placeholder and no certified CMP is loaded. When monetization is enabled, add the vendor's script/frame origins to the CSP in `apps/web/public/_headers`.
+- Existing push subscriptions created before migration `0005` cannot be decrypted (their key IVs were never stored); they are skipped until the browser re-subscribes from the Alerts page.
 - Certified CMP operation is an external runtime dependency and must be validated per production deploy (`npm run test:cmp-deploy`).
 - Some docs are date-stamped snapshots; always verify the latest release state before external reporting.
 

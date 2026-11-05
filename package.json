@@ -10,8 +10,10 @@
     "build": "npm run -w packages/shared build && npm run -w packages/policy build && npm run -w apps/worker build && npm run -w apps/web build",
     "lint": "npm run --workspaces --if-present lint",
     "typecheck": "npm run --workspaces --if-present typecheck",
+    "test": "npm run test:unit && npm run test:integration && npm run test:db && npm run test:compliance",
     "test:unit": "npm run -w packages/policy test && npm run -w apps/worker test:unit",
     "test:integration": "npm run -w apps/worker test:integration",
+    "test:db": "npm run -w apps/worker test:db",
     "test:compliance": "npm run -w apps/worker test:compliance",
     "test:e2e": "npm run -w apps/web test:e2e",
     "test:load:sec": "node scripts/test/load-sec.js",
@@ -19,8 +21,9 @@
     "test:oss-notice-gate": "node scripts/test/oss-notice-gate.js",
     "test:cmp-deploy": "node scripts/test/cmp-deploy-smoke.js",
     "gen:oss-notices": "node scripts/compliance/generate-third-party-notices.js",
-    "db:migrate": "echo \"Apply supabase/migrations/0001_init.sql with Supabase CLI or SQL editor.\"",
-    "db:seed": "echo \"Apply supabase/seed.sql with Supabase CLI or SQL editor.\""
+    "gen:vapid-keys": "node scripts/generate-vapid-keys.js",
+    "db:migrate": "supabase db push",
+    "db:seed": "supabase db push --include-seed"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.10",
