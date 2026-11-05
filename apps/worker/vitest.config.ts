@@ -14,6 +14,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["test/**/*.test.ts"]
+    include: ["test/**/*.test.ts"],
+    // DB suites start PostgreSQL (PGlite, WASM) and apply every migration in
+    // beforeAll; that is CPU-bound and takes several seconds on small CI runners.
+    hookTimeout: 60_000
   }
 });
