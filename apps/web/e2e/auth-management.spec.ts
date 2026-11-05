@@ -307,11 +307,10 @@ test("alerts rules load and add rule success", async ({ page }) => {
   await loginFromLoginPage(page);
 
   await page.getByRole("button", { name: "Load Rules" }).click();
-  await expect(page.locator("pre").getByText("\"rule_id\": \"rule-1\"")).toBeVisible();
-  await expect(page.locator("pre").getByText("\"rule_id\": \"rule-1\"")).toBeVisible();
+  await expect(page.locator('[data-rule-id="rule-1"]')).toContainText("All breaking items");
 
   await page.getByRole("button", { name: "Add Breaking Rule" }).click();
-  await expect(page.locator("pre").getByText("\"rule_id\": \"rule-1\"")).toBeVisible();
+  await expect(page.locator('[data-rule-id="rule-1"]')).toBeVisible();
 });
 
 test("alerts rules load failure is surfaced", async ({ page }) => {

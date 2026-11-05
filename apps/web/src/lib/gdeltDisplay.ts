@@ -1,4 +1,4 @@
-﻿import type { FeedItemPayload } from "@ofp/shared";
+import type { FeedItemPayload } from "@ofp/shared";
 
 export interface GdeltDisplayMeta {
   title: string;
@@ -9,7 +9,7 @@ export interface GdeltDisplayMeta {
   compactMeta: string;
 }
 
-const MENTION_COUNT_REGEX = /:\s*([0-9]+(?:\.[0-9]+)?)\s+mentions/i;
+const MENTION_COUNT_REGEX = /:\s*([0-9]+(?:\.[0-9]+)?)\s+(?:articles|mentions)/i;
 const TITLE_REGEX = /^(.*?)\s+(?:index\s+activity|mentions\s+spike)\b/i;
 
 function toSafeNumber(value: unknown): number | null {
@@ -101,8 +101,10 @@ export function buildGdeltDisplayMeta(item: FeedItemPayload): GdeltDisplayMeta {
   const mentionCount = extractMentionCount(item);
   const sourceCount = extractSourceCount(item);
 
-  const mentionText = `count ${formatCountLabel(mentionCount, "n/a")}`;
-  const sourceText = `sources ${formatCountLabel(sourceCount, "n/a")}`;
+  const intervalMinutes = toSafeNumber(item.meta?.interval_minutes);
+  const mentionText = `${formatCountLabel(mentionCount, "n/a")} articles${intervalMinutes ? ` / ${intervalMinutes} min` : ""}`;
+  // Source counts are only shown when the index actually provided them.
+  const sourceText = sourceCount === null ? "" : `sources ${formatCountLabel(sourceCount, "n/a")}`;
 
   return {
     title,
@@ -110,7 +112,7 @@ export function buildGdeltDisplayMeta(item: FeedItemPayload): GdeltDisplayMeta {
     sourceCount,
     mentionLabel: mentionText,
     sourceLabel: sourceText,
-    compactMeta: `${mentionText} / ${sourceText}`
+    compactMeta: sourceText ? `${mentionText} / ${sourceText}` : mentionText
   };
 }
 

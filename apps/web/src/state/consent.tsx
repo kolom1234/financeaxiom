@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import type { RegionPolicy as SharedRegionPolicy } from "@ofp/shared";
 import { getGeo } from "../lib/api";
 
 type ConsentState = {
@@ -8,7 +9,8 @@ type ConsentState = {
   ads_personalized: boolean;
 };
 
-export type RegionPolicy = "EU_UK_CH" | "US_STATE_PRIVACY" | "NON_EU";
+/** "PENDING" until the region is known: no ad script may load in that state. */
+export type RegionPolicy = SharedRegionPolicy | "PENDING";
 
 interface ConsentContextValue {
   regionPolicy: RegionPolicy;
@@ -25,12 +27,15 @@ interface ConsentContextValue {
 const ConsentContext = createContext<ConsentContextValue | null>(null);
 const STORAGE_KEY = "ofp_consent_v1";
 
-function normalizeRegionPolicy(input: string | null | undefined): RegionPolicy {
-  if (input === "EU_UK_CH" || input === "US_STATE_PRIVACY") {
+/** Unknown values map to the strictest policy (fail closed). */
+function normalizeRegionPolicy(input: string | null | undefined): SharedRegionPolicy {
+  if (input === "NON_EU" || input === "US_STATE_PRIVACY") {
     return input;
   }
-  return "NON_EU";
+  return "EU_UK_CH";
 }
+
+const CONSENT_MAX_AGE_MS = 13 * 30 * 24 * 60 * 60 * 1000; // re-ask after ~13 months
 
 function defaultConsent(): ConsentState {
   return {
@@ -42,8 +47,8 @@ function defaultConsent(): ConsentState {
 }
 
 export function ConsentProvider({ children }: { children: React.ReactNode }): JSX.Element {
-  const [regionPolicy, setRegionPolicy] = useState<RegionPolicy>("NON_EU");
-  const [country, setCountry] = useState("US");
+  const [regionPolicy, setRegionPolicy] = useState<RegionPolicy>("PENDING");
+  const [country, setCountry] = useState("XX");
   const [usStateCode, setUsStateCode] = useState<string | null>(null);
   const [usStatePrivacyRequired, setUsStatePrivacyRequired] = useState(false);
   const [consent, setConsent] = useState<ConsentState>(defaultConsent);
@@ -71,8 +76,13 @@ export function ConsentProvider({ children }: { children: React.ReactNode }): JS
       return;
     }
     try {
-      const parsed = JSON.parse(raw) as { consent: ConsentState };
-      setConsent(parsed.consent);
+      const parsed = JSON.parse(raw) as { consent?: ConsentState; at?: number };
+      const fresh = typeof parsed.at === "number" && Date.now() - parsed.at < CONSENT_MAX_AGE_MS;
+      if (!parsed.consent || !fresh) {
+        localStorage.removeItem(STORAGE_KEY);
+        return;
+      }
+      setConsent({ ...defaultConsent(), ...parsed.consent, essential: true });
       setHasDecision(true);
     } catch {
       localStorage.removeItem(STORAGE_KEY);

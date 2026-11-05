@@ -7,7 +7,8 @@ const ACCEPT_ALL_CONSENT = {
     ads_nonpersonalized: true,
     ads_personalized: true
   },
-  at: 1_770_000_000_000
+  // Consent decisions expire after ~13 months, so the fixture must be recent.
+  at: Date.now()
 };
 
 test.beforeEach(async ({ page }) => {
@@ -56,12 +57,17 @@ test.beforeEach(async ({ page }) => {
         data: {
           cards: [
             {
-              series_id: "US_CPI_YOY",
+              series_id: "8a4c3f6e-1d2b-4c5d-9e8f-0a1b2c3d4e5f",
+              series_code: "US_CPI_YOY",
               title: "US CPI YoY",
+              units: "%",
+              is_derived: true,
               latest_value: 2.7,
-              period: "2026-01",
-              yoy: 2.7,
-              sparkline: [2.5, 2.4, 2.6, 2.8],
+              period: "2026-01-01",
+              yoy: null,
+              change: -0.1,
+              change_unit: "pp",
+              sparkline: [2.5, 2.4, 2.6, 2.8, 2.7],
               source: { name: "BLS", policy_url: "https://www.bls.gov/developers/" },
               license: {
                 code: "BLS_PUBLIC",
@@ -287,4 +293,50 @@ test("external links are safe", async ({ page }) => {
   const link = page.locator("a.external-link").first();
   await expect(link).toHaveAttribute("target", "_blank");
   await expect(link).toHaveAttribute("rel", "noopener noreferrer");
+});
+
+test("indicator cards show a percentage-point change for % series instead of a fake YoY", async ({ page }) => {
+  await page.route("**/api/geo", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ ok: true, data: { country: "US", region_policy: "NON_EU" }, meta: { generated_at: "2026-02-16T00:00:00Z", cursor: null, cache: { hit: false, ttl: 60 } } })
+    });
+  });
+  await page.goto("/");
+  await expect(page.getByText("-0.10 pp").first()).toBeVisible();
+});
+
+test("geo lookup failure fails closed: no ad script even with stored consent", async ({ page }) => {
+  await page.addInitScript((stored) => {
+    window.localStorage.setItem("ofp_consent_v1", JSON.stringify(stored));
+  }, ACCEPT_ALL_CONSENT);
+  await page.route("**/api/geo", async (route) => {
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: { message: "down" } }) });
+  });
+  await page.goto("/");
+  await expect(page.getByText("CMP signal missing. Script blocked.").first()).toBeVisible();
+  await expect(page.locator("script[data-ofp-ad-script='1']")).toHaveCount(0);
+});
+
+test("API failure shows an unavailable state, never fabricated items", async ({ page }) => {
+  await page.unroute("**/api/feed**");
+  await page.route("**/api/feed**", async (route) => {
+    await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: { message: "store down" } }) });
+  });
+  await page.route("**/api/geo", async (route) => {
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ ok: true, data: { country: "US", region_policy: "NON_EU" }, meta: { generated_at: "2026-02-16T00:00:00Z", cursor: null, cache: { hit: false, ttl: 60 } } }) });
+  });
+  await page.goto("/");
+  await expect(page.getByText(/Live data is temporarily unavailable/)).toBeVisible();
+  await expect(page.locator(".feed-list .feed-headline")).toHaveCount(0);
+});
+
+test("unknown entity shows not found instead of another company's news", async ({ page }) => {
+  await page.route("**/api/entity/**", async (route) => {
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false, error: { message: "Entity not found." } }) });
+  });
+  await page.goto("/t/apple");
+  await expect(page.getByText("Entity not found.")).toBeVisible();
+  await expect(page.locator(".feed-list .feed-card")).toHaveCount(0);
 });

@@ -214,7 +214,7 @@ export function AdSlot({ slotId }: AdSlotProps): JSX.Element {
       };
     }
 
-    if (regionPolicy === "NON_EU") {
+    if (regionPolicy === "NON_EU" || regionPolicy === "PENDING") {
       setCmpSignals(EMPTY_SIGNALS);
       return () => {
         active = false;
@@ -233,7 +233,7 @@ export function AdSlot({ slotId }: AdSlotProps): JSX.Element {
   }, [hasAdConsent, regionPolicy]);
 
   const canLoad = useMemo(() => {
-    if (!hasAdConsent) {
+    if (!hasAdConsent || regionPolicy === "PENDING") {
       return false;
     }
     if (regionPolicy === "EU_UK_CH") {
@@ -275,6 +275,9 @@ export function AdSlot({ slotId }: AdSlotProps): JSX.Element {
 
   const statusText = useMemo(() => {
     if (!canLoad) {
+      if (regionPolicy === "PENDING") {
+        return "Determining privacy region. Script blocked.";
+      }
       if (!hasAdConsent) {
         return "Consent pending. Script blocked.";
       }

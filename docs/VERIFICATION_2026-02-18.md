@@ -1,4 +1,4 @@
-﻿# Verification Report (2026-02-18)
+# Verification Report (2026-02-18)
 
 This report captures additional verification after UI/UX and indicator-detail upgrades.
 

@@ -1,4 +1,4 @@
-﻿# Verification Report (2026-02-17)
+# Verification Report (2026-02-17)
 
 This report captures reproducible command results for the current implementation.
 
